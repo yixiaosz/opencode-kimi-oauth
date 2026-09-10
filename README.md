@@ -23,7 +23,7 @@ Contributor and agent documentation lives in [`AGENTS.md`](./AGENTS.md).
 2. If you are testing a local checkout instead of the published package, install the checkout path instead: `opencode plugin /absolute/path/to/opencode-kimi-full --global`
 3. Run `opencode auth login -p kimi-for-coding-oauth` and approve the device flow in your browser.
 4. Paste the provider block from [Configure](#configure) into your opencode config.
-5. Select `kimi-for-coding-oauth/kimi-for-coding` in opencode.
+5. Select `kimi-for-coding-oauth/kimi-for-coding` (K2.x) or `kimi-for-coding-oauth/k3` / `kimi-for-coding-oauth/k3-256k` in opencode.
 
 ### Requirements
 
@@ -49,7 +49,7 @@ opencode plugin /absolute/path/to/opencode-kimi-full --global
 
 That is the command you want when you are editing this repo and want opencode to load your working tree. Changing files in a checkout does nothing unless opencode is pointed at that checkout path.
 
-If you prefer managing plugin registration manually, add the plugin to the `plugin` list in `~/.config/opencode/opencode.json` or a project-local `.opencode/opencode.json`:
+If you prefer managing plugin registration manually, add the plugin to the `plugin` list in `~/.config/opencode/opencode.jsonc` or a project-local `.opencode/opencode.jsonc`:
 
 ```json
 {
@@ -67,11 +67,11 @@ For a local checkout, point the `plugin` entry at the repo root instead of the n
 }
 ```
 
-If you use a project-local `.opencode/opencode.json`, the plugin only exists when you run `opencode` inside that project tree. If you want `opencode auth login` to work from anywhere, use the `--global` install above.
+If you use a project-local `.opencode/opencode.jsonc`, the plugin only exists when you run `opencode` inside that project tree. If you want `opencode auth login` to work from anywhere, use the `--global` install above.
 
 ### Configure
 
-After the plugin is installed and login works, paste this provider entry into `~/.config/opencode/opencode.json` or `.opencode/opencode.json`:
+After the plugin is installed and login works, paste this provider entry into `~/.config/opencode/opencode.jsonc` or `.opencode/opencode.jsonc`:
 
 ```json
 {
@@ -100,6 +100,40 @@ After the plugin is installed and login works, paste this provider entry into `~
             "medium": { "reasoning_effort": "medium" },
             "high":   { "reasoning_effort": "high" }
           }
+        },
+        "k3": {
+          "name": "K3",
+          "attachment": true,
+          "reasoning": true,
+          "modalities": {
+            "input": ["text", "image", "video"],
+            "output": ["text"]
+          },
+          "options": {},
+          "variants": {
+            "off":  { "reasoning_effort": "off" },
+            "auto": { "reasoning_effort": "auto" },
+            "low":  { "reasoning_effort": "low" },
+            "high": { "reasoning_effort": "high" },
+            "max":  { "reasoning_effort": "max" }
+          }
+        },
+        "k3-256k": {
+          "name": "K3-256k",
+          "attachment": true,
+          "reasoning": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          },
+          "options": {},
+          "variants": {
+            "off":  { "reasoning_effort": "off" },
+            "auto": { "reasoning_effort": "auto" },
+            "low":  { "reasoning_effort": "low" },
+            "high": { "reasoning_effort": "high" },
+            "max":  { "reasoning_effort": "max" }
+          }
         }
       }
     }
@@ -111,10 +145,11 @@ After the plugin is installed and login works, paste this provider entry into `~
 
 This block is for using the model after login. It does **not** register the auth provider by itself. What makes `opencode auth login -p kimi-for-coding-oauth` work is the plugin being loaded via `opencode plugin ...` or the `plugin` array above.
 
-Use these two ids exactly as written:
+Use these ids exactly as written:
 
 - **provider id** `kimi-for-coding-oauth` -- the plugin's `auth` and `chat.params` hooks match on it.
 - **model id** `kimi-for-coding` -- a stable opencode-side alias. At login and on every token refresh the plugin queries `/coding/v1/models` and rewrites the wire `model` field if the server reports a different slug for your account.
+- **model ids** `k3` / `k3-256k` -- the newer K3 models on the same coding backend. These ids are the real wire slugs, so requests go out unrewritten; the plugin still adds `prompt_cache_key`, `thinking`, and `reasoning_effort` for them. The `max` variant is clamped to `high` on the wire, matching kimi-cli.
 
 > **Note.** The provider id is intentionally not `kimi-for-coding`. That id is already published by [models.dev](https://models.dev) and points at a static-API-key flow using a different SDK and auth shape. Using a distinct id keeps the two paths from colliding under a single `opencode auth login` entry.
 
@@ -144,7 +179,7 @@ The usual causes are:
 
 - You skipped `opencode plugin opencode-kimi-full --global` or `opencode plugin /absolute/path/to/opencode-kimi-full --global`.
 - You edited a local checkout, but opencode is not pointed at that checkout path.
-- You put the plugin in a project-local `.opencode/opencode.json`, but ran `opencode auth login` from another directory.
+- You put the plugin in a project-local `.opencode/opencode.jsonc`, but ran `opencode auth login` from another directory.
 - You added the `provider` block, but not the `plugin` entry or plugin install.
 
 Fastest fix:
@@ -180,7 +215,7 @@ The plugin also backfills these capabilities at runtime from `/coding/v1/models`
 
 ### Use
 
-Select `kimi-for-coding-oauth/kimi-for-coding` in opencode.
+Select `kimi-for-coding-oauth/kimi-for-coding` (K2.x) or `kimi-for-coding-oauth/k3` / `kimi-for-coding-oauth/k3-256k` in opencode.
 
 The default variant-cycle keybind is **Ctrl+T**. The variants map as follows:
 
@@ -196,7 +231,7 @@ These variants only affect Kimi's reasoning request fields. They do not switch m
 
 Effort levels `xhigh` and `max` are clamped to `high`, matching kimi-cli's behavior (Kimi's backend does not support higher tiers).
 
-Every `kimi-for-coding` request also gets `prompt_cache_key` set to opencode's session id. That mirrors `kimi-cli`'s cache hint so follow-up turns in the same session can reuse Kimi's prompt cache.
+Every request to these models also gets `prompt_cache_key` set to opencode's session id. That mirrors `kimi-cli`'s cache hint so follow-up turns in the same session can reuse Kimi's prompt cache.
 
 #### Usage command
 

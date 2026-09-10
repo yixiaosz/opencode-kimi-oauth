@@ -1,7 +1,7 @@
 import type { Plugin, PluginModule } from "@opencode-ai/plugin"
 import { isAuthExpiring, refreshAuthWithLock } from "./auth-refresh.ts"
 import { isOAuthAuth, readAuth, type OAuthAuth } from "./auth-store.ts"
-import { API_BASE_URL, MODEL_ID, PROVIDER_ID } from "./constants.ts"
+import { API_BASE_URL, K3_256K_MODEL_ID, K3_MODEL_ID, KIMI_MODEL_IDS, MODEL_ID, PROVIDER_ID } from "./constants.ts"
 import { kimiHeaders } from "./headers.ts"
 import { type KimiModelInfo, listModels, pollDeviceToken, startDeviceAuth } from "./oauth.ts"
 
@@ -93,7 +93,7 @@ function clampEffort(effort: string): string {
 
 function resolveKimiBodyFields(input: KimiHookInput): KimiBodyFields | undefined {
   if (input.model.providerID !== PROVIDER_ID) return
-  if (input.model.id !== MODEL_ID) return
+  if (!KIMI_MODEL_IDS.has(input.model.id)) return
 
   const modelOptions = asRecord(input.model.options)
   const variantOptions = input.message.model.variant
@@ -319,6 +319,19 @@ function buildConfigBlock(info: { model_id: string; display?: string; supports_i
     }
   }
 
+  // K3 entries are static: `/coding/v1/models` discovery describes only the
+  // kimi-for-coding entitlement, not K3. Capabilities below reflect the K3
+  // launch specs (K3: vision+video; K3-256k: vision, no video). The `max`
+  // variant is clamped to "high" on the wire by clampEffort, same as
+  // kimi-cli.
+  const k3Variants = {
+    off: { reasoning_effort: "off" },
+    auto: { reasoning_effort: "auto" },
+    low: { reasoning_effort: "low" },
+    high: { reasoning_effort: "high" },
+    max: { reasoning_effort: "max" },
+  }
+
   return JSON.stringify(
     {
       provider: {
@@ -328,6 +341,22 @@ function buildConfigBlock(info: { model_id: string; display?: string; supports_i
           options: { baseURL: API_BASE_URL },
           models: {
             [MODEL_ID]: modelConfig,
+            [K3_MODEL_ID]: {
+              name: "K3",
+              reasoning: true,
+              options: {},
+              variants: k3Variants,
+              attachment: true,
+              modalities: { input: ["text", "image", "video"], output: ["text"] },
+            },
+            [K3_256K_MODEL_ID]: {
+              name: "K3-256k",
+              reasoning: true,
+              options: {},
+              variants: k3Variants,
+              attachment: true,
+              modalities: { input: ["text", "image"], output: ["text"] },
+            },
           },
         },
       },
@@ -555,7 +584,9 @@ const plugin: Plugin = async ({ client }) => {
               // opencode's UI/config, while Moonshot sees whatever its
               // /models endpoint says for this account (for example a
               // non-default slug). Mirrors kimi-cli's behavior — it always sends
-              // exactly the id it got back from `/models`.
+              // exactly the id it got back from `/models`. The `k3`/`k3-256k`
+              // config entries already carry their real wire slug, so they
+              // pass through unrewritten (only the Kimi body fields apply).
               let newInit = init
               const targetModel = auth.model_id
               const originalBody =
@@ -634,7 +665,7 @@ const plugin: Plugin = async ({ client }) => {
                       console.log(
                         `\n✓ Authorized for Kimi For Coding (model: ${discovered.model_id}${
                           discovered.context_length ? `, context ${discovered.context_length}` : ""
-                        })\n\nAdd this to your opencode config (~/.config/opencode/opencode.json) if you haven't already:\n\n${block}\n`,
+                        })\n\nAdd this to your opencode config (~/.config/opencode/opencode.jsonc) if you haven't already:\n\n${block}\n`,
                       )
                     }
                   } catch {

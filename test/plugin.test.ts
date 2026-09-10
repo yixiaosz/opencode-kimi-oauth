@@ -5,7 +5,7 @@ import { test, expect, afterEach } from "bun:test"
 import pluginModule from "../src/index.ts"
 
 const plugin = pluginModule.server
-import { MODEL_ID, PROVIDER_ID, REFRESH_SAFETY_WINDOW_MS } from "../src/constants.ts"
+import { K3_256K_MODEL_ID, K3_MODEL_ID, MODEL_ID, PROVIDER_ID, REFRESH_SAFETY_WINDOW_MS } from "../src/constants.ts"
 import { installFetchMock } from "./_util/fetchMock.ts"
 
 // kimiHeaders() → getDeviceId() reads/writes ~/.kimi/device_id; that file is
@@ -163,6 +163,29 @@ test("chat.params: no-op for other models under our provider (rule 5 gating)", a
   const { output } = await callParams(hook, { modelID: "kimi-something-else" })
   expect(output.options.prompt_cache_key).toBeUndefined()
   expect(output.options.thinking).toBeUndefined()
+})
+
+test("chat.params: applies Kimi fields for k3 and k3-256k (rule 5 allowlist)", async () => {
+  const { hooks } = await getHooks()
+  const hook = hooks["chat.params"]!
+  for (const modelID of [K3_MODEL_ID, K3_256K_MODEL_ID]) {
+    const { output } = await callParams(
+      hook,
+      { modelID, sessionID: "sess-k3", variants: { high: { reasoning_effort: "high" } }, variant: "high" },
+    )
+    expect(output.options.prompt_cache_key).toBe("sess-k3")
+    expect(output.options.reasoning_effort).toBe("high")
+    expect(output.options.thinking).toEqual({ type: "enabled" })
+  }
+})
+
+test("chat.params: k3 max variant clamps to high on the wire", async () => {
+  const { hooks } = await getHooks()
+  const { output } = await callParams(
+    hooks["chat.params"]!,
+    { modelID: K3_MODEL_ID, variants: { max: { reasoning_effort: "max" } }, variant: "max" },
+  )
+  expect(output.options.reasoning_effort).toBe("high")
 })
 
 test("chat.params: attaches prompt_cache_key = sessionID for kimi-for-coding only", async () => {
@@ -893,6 +916,40 @@ test("auth.loader: caches discovered model info for subsequent requests in the s
   expect(mock.calls.filter((c) => c.url.endsWith("/coding/v1/models"))).toHaveLength(1)
 })
 
+test("auth.loader: k3 wire id passes through unrewritten while Kimi body fields still apply", async () => {
+  // Discovery returns the kimi-for-coding entitlement slug; k3 requests must
+  // keep `model: "k3"` — the config id is already the real wire slug.
+  const { hooks } = await getHooks()
+  const { output: headerOutput } = await callHeaders(hooks["chat.headers"]!, {
+    modelID: K3_MODEL_ID,
+    sessionID: "sess-k3",
+    variants: { low: { reasoning_effort: "low" } },
+    variant: "low",
+  })
+  mock = installFetchMock((call) => {
+    if (call.url.endsWith("/coding/v1/models")) {
+      return { body: { data: [{ id: "k2p5", context_length: 262144 }] } }
+    }
+    return { body: { ok: true } }
+  })
+  const { fetch: f } = await getLoaderFetch(async () => validAuth())
+  await f("https://api.kimi.com/coding/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headerOutput.headers,
+    },
+    body: JSON.stringify({ model: K3_MODEL_ID, messages: [] }),
+  })
+  expect(JSON.parse(mock.calls[1]!.body as string)).toEqual({
+    model: K3_MODEL_ID,
+    messages: [],
+    prompt_cache_key: "sess-k3",
+    reasoning_effort: "low",
+    thinking: { type: "enabled" },
+  })
+})
+
 test("auth.loader: rewrites wire `model` to the discovered server id (Option A)", async () => {
   // Persisted auth already carries a discovered model_id different from the
   // opencode-side MODEL_ID placeholder — this is the alternate-slug case.
@@ -1074,6 +1131,8 @@ test("auth callback prints a schema-valid config snippet with top-level model va
   }
   const model = parsed.provider[PROVIDER_ID]!.models[MODEL_ID]!
   expect(text).toContain("context 262144")
+  expect(text).toContain("opencode.jsonc")
+  expect(text).not.toContain("opencode.json)")
   expect(model.attachment).toBe(true)
   expect(model.limit).toBeUndefined()
   expect(model.modalities).toEqual({
@@ -1084,4 +1143,21 @@ test("auth callback prints a schema-valid config snippet with top-level model va
   expect(model.variants?.off).toEqual({ reasoning_effort: "off" })
   expect(model.variants?.auto).toEqual({ reasoning_effort: "auto" })
   expect(model.options?.variants).toBeUndefined()
+
+  const k3 = parsed.provider[PROVIDER_ID]!.models[K3_MODEL_ID]!
+  expect(k3.attachment).toBe(true)
+  expect(k3.limit).toBeUndefined()
+  expect(k3.modalities).toEqual({ input: ["text", "image", "video"], output: ["text"] })
+  expect(k3.variants).toEqual({
+    off: { reasoning_effort: "off" },
+    auto: { reasoning_effort: "auto" },
+    low: { reasoning_effort: "low" },
+    high: { reasoning_effort: "high" },
+    max: { reasoning_effort: "max" },
+  })
+
+  const k3256k = parsed.provider[PROVIDER_ID]!.models[K3_256K_MODEL_ID]!
+  expect(k3256k.attachment).toBe(true)
+  expect(k3256k.modalities).toEqual({ input: ["text", "image"], output: ["text"] })
+  expect(k3256k.variants?.max).toEqual({ reasoning_effort: "max" })
 })
