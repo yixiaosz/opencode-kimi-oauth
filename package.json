@@ -40,17 +40,25 @@
     "prompt-cache-key"
   ],
   "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.4.6"
+    "@opencode-ai/plugin": ">=1.4.6",
+    "@opentui/core": ">=0.4.5",
+    "@opentui/solid": ">=0.4.5"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    }
   },
   "engines": {
     "opencode": ">=1.4.6"
   },
-  "dependencies": {
-    "@opentui/core": "0.1.99",
-    "@opentui/solid": "0.1.99"
-  },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.4.7",
+    "@opentui/core": "^0.5.8",
+    "@opentui/solid": "^0.5.8",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   }

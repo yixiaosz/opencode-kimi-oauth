@@ -29,6 +29,7 @@ Contributor and agent documentation lives in [`AGENTS.md`](./AGENTS.md).
 
 - `opencode` >= 1.4.6
 - A Kimi account with an active **Kimi For Coding** subscription (the same plan that works with kimi-cli)
+- For the `/kimi:usage` TUI command: an opencode version that ships `@opentui/solid` >= 0.4.5 (opencode >= ~1.18). On older versions the server side (auth, chat, model discovery) still works; the TUI command just won't register.
 
 ### Install
 
