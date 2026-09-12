@@ -1,7 +1,7 @@
 import type { Plugin, PluginModule } from "@opencode-ai/plugin"
 import { isAuthExpiring, refreshAuthWithLock } from "./auth-refresh.ts"
 import { isOAuthAuth, readAuth, type OAuthAuth } from "./auth-store.ts"
-import { API_BASE_URL, K3_256K_MODEL_ID, K3_MODEL_ID, KIMI_MODEL_IDS, MODEL_ID, PROVIDER_ID } from "./constants.ts"
+import { API_BASE_URL, HIGHSPEED_MODEL_ID, K3_256K_MODEL_ID, K3_MODEL_ID, KIMI_MODEL_IDS, MODEL_ID, PROVIDER_ID } from "./constants.ts"
 import { kimiHeaders } from "./headers.ts"
 import { type KimiModelInfo, listModels, pollDeviceToken, startDeviceAuth } from "./oauth.ts"
 
@@ -83,11 +83,14 @@ function pickEffort(options: Record<string, unknown> | undefined) {
   return typeof effort === "string" ? effort : undefined
 }
 
-// kimi-cli clamps xhigh/max to "high" (research/kimi-cli/packages/kosong/
-// src/kosong/chat_provider/kimi.py, Kimi.with_thinking). Other providers
-// support higher tiers but Kimi's backend does not.
-function clampEffort(effort: string): string {
-  if (effort === "xhigh" || effort === "max") return "high"
+// Kimi's coding backend maps effort tiers server-side (kimi-code docs,
+// https://www.kimi.com/code/docs/en/kimi-code/models.html): ultra/max/xhigh
+// → max, high/medium → high, low/minimum/light → low. opencode variant
+// names can be `xhigh`; normalize that one here. kimi-code's kosong
+// OpenAI-protocol provider otherwise passes the effort verbatim — no
+// clamping.
+function mapEffort(effort: string): string {
+  if (effort === "xhigh") return "max"
   return effort
 }
 
@@ -103,15 +106,20 @@ function resolveKimiBodyFields(input: KimiHookInput): KimiBodyFields | undefined
   const fields: KimiBodyFields = { prompt_cache_key: input.sessionID }
   const thinking = asThinking(variantOptions?.thinking) ?? asThinking(modelOptions?.thinking)
   const rawEffort = pickEffort(variantOptions) ?? pickEffort(modelOptions)
-  const effort = rawEffort ? clampEffort(rawEffort) : undefined
+  const effort = rawEffort ? mapEffort(rawEffort) : undefined
 
+  // `auto`/unset → send neither field; the server picks the model default
+  // (high for K3, max for K2.8). `off` → thinking disabled only. Explicit
+  // effort → reasoning_effort only. kimi-code's OpenAI-protocol kosong
+  // provider never sends `thinking: {type: "enabled"}` — that shape belongs
+  // to the Anthropic-protocol adapter — so we no longer force-emit it.
   if (effort === "auto") return fields
   if (effort === "off") {
     fields.thinking = { type: "disabled" }
     return fields
   }
   if (effort) fields.reasoning_effort = effort
-  fields.thinking = thinking ?? { type: "enabled" }
+  if (thinking) fields.thinking = thinking
   return fields
 }
 
@@ -304,6 +312,7 @@ function buildConfigBlock(info: { model_id: string; display?: string; supports_i
       low: { reasoning_effort: "low" },
       medium: { reasoning_effort: "medium" },
       high: { reasoning_effort: "high" },
+      max: { reasoning_effort: "max" },
     },
   }
   if (info.supports_image_in) {
@@ -321,9 +330,9 @@ function buildConfigBlock(info: { model_id: string; display?: string; supports_i
 
   // K3 entries are static: `/coding/v1/models` discovery describes only the
   // kimi-for-coding entitlement, not K3. Capabilities below reflect the K3
-  // launch specs (K3: vision+video; K3-256k: vision, no video). The `max`
-  // variant is clamped to "high" on the wire by clampEffort, same as
-  // kimi-cli.
+  // launch specs (K3: vision+video; K3-256k: vision, no video). All tiers
+  // (low/high/max) pass through unclamped — the coding backend supports
+  // `max` on K3 and K2.8 (kimi-for-coding).
   const k3Variants = {
     off: { reasoning_effort: "off" },
     auto: { reasoning_effort: "auto" },
@@ -356,6 +365,16 @@ function buildConfigBlock(info: { model_id: string; display?: string; supports_i
               variants: k3Variants,
               attachment: true,
               modalities: { input: ["text", "image"], output: ["text"] },
+            },
+            // HighSpeed is always-thinking with no effort tiers (K2.7 Code
+            // HighSpeed per the docs), so no variants — the plugin only adds
+            // prompt_cache_key for it.
+            [HIGHSPEED_MODEL_ID]: {
+              name: "Kimi For Coding HighSpeed",
+              reasoning: true,
+              options: {},
+              attachment: true,
+              modalities: { input: ["text", "image", "video"], output: ["text"] },
             },
           },
         },

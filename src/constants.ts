@@ -24,16 +24,22 @@ export const OAUTH_REFRESH_GRANT = "refresh_token"
 export const API_BASE_URL = "https://api.kimi.com/coding/v1"
 export const MODEL_ID = "kimi-for-coding"
 
-// K3 and K3-256k are served by the same coding backend. Unlike MODEL_ID
-// (a stable opencode-side alias that gets rewritten to the discovered wire
-// slug), these config ids ARE the wire slugs — requests pass through
-// unrewritten.
+// K3, K3-256k, and the HighSpeed variant are served by the same coding
+// backend. Unlike MODEL_ID (a stable opencode-side alias that gets rewritten
+// to the discovered wire slug), these config ids ARE the wire slugs —
+// requests pass through unrewritten.
 export const K3_MODEL_ID = "k3"
 export const K3_256K_MODEL_ID = "k3-256k"
+export const HIGHSPEED_MODEL_ID = "kimi-for-coding-highspeed"
 // Model ids that get the Kimi-specific request fields (prompt_cache_key,
 // thinking, reasoning_effort). Anything outside this set must pass through
 // untouched.
-export const KIMI_MODEL_IDS: ReadonlySet<string> = new Set([MODEL_ID, K3_MODEL_ID, K3_256K_MODEL_ID])
+export const KIMI_MODEL_IDS: ReadonlySet<string> = new Set([
+  MODEL_ID,
+  K3_MODEL_ID,
+  K3_256K_MODEL_ID,
+  HIGHSPEED_MODEL_ID,
+])
 
 // Provider id the user must use in their opencode config. Intentionally NOT
 // "kimi-for-coding" — models.dev publishes an entry under that id (static

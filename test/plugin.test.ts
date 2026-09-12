@@ -5,7 +5,7 @@ import { test, expect, afterEach } from "bun:test"
 import pluginModule from "../src/index.ts"
 
 const plugin = pluginModule.server
-import { K3_256K_MODEL_ID, K3_MODEL_ID, MODEL_ID, PROVIDER_ID, REFRESH_SAFETY_WINDOW_MS } from "../src/constants.ts"
+import { HIGHSPEED_MODEL_ID, K3_256K_MODEL_ID, K3_MODEL_ID, MODEL_ID, PROVIDER_ID, REFRESH_SAFETY_WINDOW_MS } from "../src/constants.ts"
 import { installFetchMock } from "./_util/fetchMock.ts"
 
 // kimiHeaders() → getDeviceId() reads/writes ~/.kimi/device_id; that file is
@@ -175,17 +175,18 @@ test("chat.params: applies Kimi fields for k3 and k3-256k (rule 5 allowlist)", a
     )
     expect(output.options.prompt_cache_key).toBe("sess-k3")
     expect(output.options.reasoning_effort).toBe("high")
-    expect(output.options.thinking).toEqual({ type: "enabled" })
+    expect(output.options.thinking).toBeUndefined()
   }
 })
 
-test("chat.params: k3 max variant clamps to high on the wire", async () => {
+test("chat.params: k3 max variant passes through unclamped", async () => {
   const { hooks } = await getHooks()
   const { output } = await callParams(
     hooks["chat.params"]!,
     { modelID: K3_MODEL_ID, variants: { max: { reasoning_effort: "max" } }, variant: "max" },
   )
-  expect(output.options.reasoning_effort).toBe("high")
+  expect(output.options.reasoning_effort).toBe("max")
+  expect(output.options.thinking).toBeUndefined()
 })
 
 test("chat.params: attaches prompt_cache_key = sessionID for kimi-for-coding only", async () => {
@@ -197,21 +198,24 @@ test("chat.params: attaches prompt_cache_key = sessionID for kimi-for-coding onl
 
 // The effort matrix is the most load-bearing contract in AGENTS.md → rule 4.
 // Off  → thinking disabled, reasoning_effort stripped.
-// low/medium/high → reasoning_effort kept, thinking enabled.
-// unset → thinking enabled, no reasoning_effort (server-picks default).
+// low/medium/high/max → reasoning_effort kept, no thinking field (kimi-code's
+// OpenAI-protocol kosong provider never sends `thinking`; that shape belongs
+// to its Anthropic-protocol adapter).
+// unset → neither field (server picks the model default: high for K3, max
+// for K2.8). xhigh → mapped to "max" per the docs' server-side tier table.
 const EFFORT_MATRIX: Array<{
   in: Record<string, unknown>
   effort: string | undefined
-  thinkingType: "enabled" | "disabled"
+  thinkingType: "enabled" | "disabled" | undefined
 }> = [
   { in: { reasoning_effort: "off" }, effort: undefined, thinkingType: "disabled" },
-  { in: { reasoning_effort: "low" }, effort: "low", thinkingType: "enabled" },
-  { in: { reasoning_effort: "medium" }, effort: "medium", thinkingType: "enabled" },
-  { in: { reasoning_effort: "high" }, effort: "high", thinkingType: "enabled" },
-  // kimi-cli clamps xhigh/max to "high" — Kimi's backend does not support them.
-  { in: { reasoning_effort: "xhigh" }, effort: "high", thinkingType: "enabled" },
-  { in: { reasoning_effort: "max" }, effort: "high", thinkingType: "enabled" },
-  { in: {}, effort: undefined, thinkingType: "enabled" },
+  { in: { reasoning_effort: "low" }, effort: "low", thinkingType: undefined },
+  { in: { reasoning_effort: "medium" }, effort: "medium", thinkingType: undefined },
+  { in: { reasoning_effort: "high" }, effort: "high", thinkingType: undefined },
+  // Docs map xhigh → max; max passes through unclamped.
+  { in: { reasoning_effort: "xhigh" }, effort: "max", thinkingType: undefined },
+  { in: { reasoning_effort: "max" }, effort: "max", thinkingType: undefined },
+  { in: {}, effort: undefined, thinkingType: undefined },
 ]
 
 test("chat.params: effort=auto → no reasoning_effort, no thinking (server picks dynamically)", async () => {
@@ -230,7 +234,11 @@ for (const row of EFFORT_MATRIX) {
     const { hooks } = await getHooks()
     const { output } = await callParams(hooks["chat.params"]!, { modelOptions: row.in }, row.in)
     expect(output.options.reasoning_effort).toBe(row.effort)
-    expect(output.options.thinking).toEqual({ type: row.thinkingType })
+    if (row.thinkingType === undefined) {
+      expect(output.options.thinking).toBeUndefined()
+    } else {
+      expect(output.options.thinking).toEqual({ type: row.thinkingType })
+    }
   })
 }
 
@@ -247,11 +255,11 @@ test("chat.params: `reasoningEffort` (camelCase) input also drives the mapping",
   expect(output.options.reasoningEffort).toBeUndefined()
 })
 
-test("chat.headers: default request enables thinking and carries prompt_cache_key", async () => {
+test("chat.headers: default request omits thinking and carries prompt_cache_key only", async () => {
   const { hooks } = await getHooks()
   const { output } = await callHeaders(hooks["chat.headers"]!)
   expect(output.headers[INTERNAL_PROMPT_CACHE_KEY_HEADER]).toBe("sess-1")
-  expect(output.headers[INTERNAL_THINKING_TYPE_HEADER]).toBe("enabled")
+  expect(output.headers[INTERNAL_THINKING_TYPE_HEADER]).toBeUndefined()
   expect(output.headers[INTERNAL_REASONING_EFFORT_HEADER]).toBeUndefined()
 })
 
@@ -563,7 +571,7 @@ test("auth.loader: owns Authorization and strips any caller-supplied value (rule
   expect(h["x-msh-device-id"]).toMatch(/^[0-9a-f]{32}$/)
 })
 
-test("auth.loader: injects default thinking via private headers and strips them upstream", async () => {
+test("auth.loader: injects prompt_cache_key only by default and strips private headers upstream", async () => {
   const { hooks } = await getHooks()
   const { output: headerOutput } = await callHeaders(hooks["chat.headers"]!, {
     sessionID: "sess-default",
@@ -591,7 +599,6 @@ test("auth.loader: injects default thinking via private headers and strips them 
     model: MODEL_ID,
     messages: [],
     prompt_cache_key: "sess-default",
-    thinking: { type: "enabled" },
   })
 })
 
@@ -622,7 +629,6 @@ test("auth.loader: injects selected reasoning_effort from private headers into t
     messages: [],
     prompt_cache_key: "sess-high",
     reasoning_effort: "high",
-    thinking: { type: "enabled" },
   })
 })
 
@@ -946,7 +952,6 @@ test("auth.loader: k3 wire id passes through unrewritten while Kimi body fields 
     messages: [],
     prompt_cache_key: "sess-k3",
     reasoning_effort: "low",
-    thinking: { type: "enabled" },
   })
 })
 
@@ -1142,6 +1147,7 @@ test("auth callback prints a schema-valid config snippet with top-level model va
   expect(model.options).toEqual({})
   expect(model.variants?.off).toEqual({ reasoning_effort: "off" })
   expect(model.variants?.auto).toEqual({ reasoning_effort: "auto" })
+  expect(model.variants?.max).toEqual({ reasoning_effort: "max" })
   expect(model.options?.variants).toBeUndefined()
 
   const k3 = parsed.provider[PROVIDER_ID]!.models[K3_MODEL_ID]!
@@ -1160,4 +1166,9 @@ test("auth callback prints a schema-valid config snippet with top-level model va
   expect(k3256k.attachment).toBe(true)
   expect(k3256k.modalities).toEqual({ input: ["text", "image"], output: ["text"] })
   expect(k3256k.variants?.max).toEqual({ reasoning_effort: "max" })
+
+  const highspeed = parsed.provider[PROVIDER_ID]!.models[HIGHSPEED_MODEL_ID]!
+  expect(highspeed.attachment).toBe(true)
+  expect(highspeed.modalities).toEqual({ input: ["text", "image", "video"], output: ["text"] })
+  expect(highspeed.variants).toBeUndefined()
 })

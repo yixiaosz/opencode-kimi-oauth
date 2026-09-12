@@ -8,7 +8,7 @@ Compared with stock opencode Kimi setups, this plugin:
 - talks to `https://api.kimi.com/coding/v1` through `@ai-sdk/openai-compatible`
 - sends the same `User-Agent` / `X-Msh-*` fingerprint headers as `kimi-cli`
 - reuses `~/.kimi/device_id` for `X-Msh-Device-Id`
-- adds `prompt_cache_key`, `thinking`, and `reasoning_effort` for `kimi-for-coding` requests
+- adds `prompt_cache_key` and `reasoning_effort` (plus `thinking: { "type": "disabled" }` for the `off` variant) for Kimi coding-backend models
 - discovers the authoritative wire model slug, display name, context length, and media-input capabilities from `/coding/v1/models`
 - keeps tokens in opencode's auth store while mirroring `kimi-cli`'s refresh / retry behavior
 - provides a `/kimi:usage` TUI command to check subscription usage
@@ -23,7 +23,7 @@ Contributor and agent documentation lives in [`AGENTS.md`](./AGENTS.md).
 2. If you are testing a local checkout instead of the published package, install the checkout path instead: `opencode plugin /absolute/path/to/opencode-kimi-full --global`
 3. Run `opencode auth login -p kimi-for-coding-oauth` and approve the device flow in your browser.
 4. Paste the provider block from [Configure](#configure) into your opencode config.
-5. Select `kimi-for-coding-oauth/kimi-for-coding` (K2.x) or `kimi-for-coding-oauth/k3` / `kimi-for-coding-oauth/k3-256k` in opencode.
+5. Select `kimi-for-coding-oauth/kimi-for-coding` (K2.8 Preview), `kimi-for-coding-oauth/k3` / `kimi-for-coding-oauth/k3-256k` (K3), or `kimi-for-coding-oauth/kimi-for-coding-highspeed` (K2.7 HighSpeed) in opencode.
 
 ### Requirements
 
@@ -98,7 +98,8 @@ After the plugin is installed and login works, paste this provider entry into `~
             "auto":   { "reasoning_effort": "auto" },
             "low":    { "reasoning_effort": "low" },
             "medium": { "reasoning_effort": "medium" },
-            "high":   { "reasoning_effort": "high" }
+            "high":   { "reasoning_effort": "high" },
+            "max":    { "reasoning_effort": "max" }
           }
         },
         "k3": {
@@ -134,6 +135,16 @@ After the plugin is installed and login works, paste this provider entry into `~
             "high": { "reasoning_effort": "high" },
             "max":  { "reasoning_effort": "max" }
           }
+        },
+        "kimi-for-coding-highspeed": {
+          "name": "Kimi For Coding HighSpeed",
+          "attachment": true,
+          "reasoning": true,
+          "modalities": {
+            "input": ["text", "image", "video"],
+            "output": ["text"]
+          },
+          "options": {}
         }
       }
     }
@@ -149,7 +160,8 @@ Use these ids exactly as written:
 
 - **provider id** `kimi-for-coding-oauth` -- the plugin's `auth` and `chat.params` hooks match on it.
 - **model id** `kimi-for-coding` -- a stable opencode-side alias. At login and on every token refresh the plugin queries `/coding/v1/models` and rewrites the wire `model` field if the server reports a different slug for your account.
-- **model ids** `k3` / `k3-256k` -- the newer K3 models on the same coding backend. These ids are the real wire slugs, so requests go out unrewritten; the plugin still adds `prompt_cache_key`, `thinking`, and `reasoning_effort` for them. The `max` variant is clamped to `high` on the wire, matching kimi-cli.
+- **model ids** `k3` / `k3-256k` -- the K3 models on the same coding backend. These ids are the real wire slugs, so requests go out unrewritten; the plugin still adds `prompt_cache_key` and `reasoning_effort` for them.
+- **model id** `kimi-for-coding-highspeed` -- the K2.7 HighSpeed model: always thinking, no effort tiers, ~5-6x faster output. Also a real wire slug; like `k3`, it passes through unrewritten and only gets `prompt_cache_key`.
 
 > **Note.** The provider id is intentionally not `kimi-for-coding`. That id is already published by [models.dev](https://models.dev) and points at a static-API-key flow using a different SDK and auth shape. Using a distinct id keeps the two paths from colliding under a single `opencode auth login` entry.
 
@@ -215,21 +227,21 @@ The plugin also backfills these capabilities at runtime from `/coding/v1/models`
 
 ### Use
 
-Select `kimi-for-coding-oauth/kimi-for-coding` (K2.x) or `kimi-for-coding-oauth/k3` / `kimi-for-coding-oauth/k3-256k` in opencode.
+Select `kimi-for-coding-oauth/kimi-for-coding` (K2.8 Preview), `kimi-for-coding-oauth/k3` / `kimi-for-coding-oauth/k3-256k` (K3), or `kimi-for-coding-oauth/kimi-for-coding-highspeed` (K2.7 HighSpeed) in opencode.
 
 The default variant-cycle keybind is **Ctrl+T**. The variants map as follows:
 
 - `off` -- sends `thinking: { "type": "disabled" }`
 - `auto` -- omits both `thinking` and `reasoning_effort`
-- `low` / `medium` / `high` -- send `thinking: { "type": "enabled" }` plus the matching `reasoning_effort`
+- `low` / `medium` / `high` / `max` -- send only the matching `reasoning_effort` (no `thinking` field)
 
 These variants only affect Kimi's reasoning request fields. They do not switch models or auth paths. In practice:
 
 - `off` asks the backend to disable thinking
-- `auto` leaves the decision to the server
-- `low` / `medium` / `high` ask for enabled thinking with the corresponding reasoning effort
+- `auto` leaves the decision to the server (default `high` on K3, `max` on K2.8)
+- `low` / `medium` / `high` / `max` ask for the corresponding reasoning effort
 
-Effort levels `xhigh` and `max` are clamped to `high`, matching kimi-cli's behavior (Kimi's backend does not support higher tiers).
+Kimi's coding backend accepts `low` / `high` / `max` on all these models (K3 and the K2.8 `kimi-for-coding`); opencode's `xhigh` variant name maps to `max`. `kimi-for-coding-highspeed` has no variants -- it is always thinking with no effort tiers.
 
 Every request to these models also gets `prompt_cache_key` set to opencode's session id. That mirrors `kimi-cli`'s cache hint so follow-up turns in the same session can reuse Kimi's prompt cache.
 
@@ -249,7 +261,7 @@ Stock opencode can already talk to generic Moonshot and OpenAI-compatible endpoi
 - OAuth device flow against `https://auth.kimi.com`.
 - `@ai-sdk/openai-compatible` pointed at `https://api.kimi.com/coding/v1`.
 - `prompt_cache_key` set to opencode's session id, for session-scoped cache reuse.
-- Paired `thinking` + `reasoning_effort` fields, with effort clamping to match kimi-cli.
+- `reasoning_effort` field for thinking effort, matching kimi-code (Kimi's coding backend supports `low` / `high` / `max` on K3 and K2.8).
 - The seven `X-Msh-*` headers and a kimi-cli-shaped `User-Agent`.
 - `~/.kimi/device_id` shared with a locally-installed kimi-cli.
 - Runtime model discovery from `/coding/v1/models`, including the server-reported wire slug, `display_name`, `context_length`, and media-input capabilities.
@@ -265,7 +277,7 @@ Stock opencode can already talk to generic Moonshot and OpenAI-compatible endpoi
 | Field | Wire shape | Purpose |
 |---|---|---|
 | `prompt_cache_key` | top-level body, snake_case, set to opencode's `sessionID` | Opt-in, session-scoped cache key, mirroring kimi-cli. |
-| `thinking` + `reasoning_effort` | `thinking: { type: "enabled" \| "disabled" }` with sibling `reasoning_effort: "low" \| "medium" \| "high"` | Sent together, matching kimi-cli. `xhigh`/`max` clamped to `high`. |
+| `thinking` + `reasoning_effort` | `reasoning_effort: "low" \| "medium" \| "high" \| "max"`; `thinking: { type: "disabled" }` only when effort is `off` | Mirrors kimi-code's OpenAI-protocol behavior — no forced `thinking: enabled`; opencode's `xhigh` maps to `max`. |
 | Seven `X-Msh-*` headers + UA | `User-Agent`, `X-Msh-Platform`, `X-Msh-Version`, `X-Msh-Device-Name`, `X-Msh-Device-Model`, `X-Msh-Device-Id`, `X-Msh-Os-Version` | Matches kimi-cli's `_common_headers()` at the pinned `KIMI_CLI_VERSION`. |
 | `/coding/v1/models` discovery | `id`, `display_name`, `context_length`, `supports_image_in`, `supports_video_in` | Supplies the authoritative wire model slug plus runtime model metadata. |
 | `~/.kimi/device_id` | UUID persisted on disk, embedded in `X-Msh-Device-Id` | Sends the same `X-Msh-Device-Id` as a locally-installed kimi-cli. |
@@ -274,10 +286,10 @@ Effort-to-field mapping used by the plugin:
 
 | user effort | `reasoning_effort` | `thinking` |
 |---|---|---|
-| `auto` | *(omitted)* | *(omitted)* -- server picks dynamically |
+| `auto` | *(omitted)* | *(omitted)* -- server picks the model default |
 | `off` | *(omitted)* | `{ type: "disabled" }` |
-| `low` / `medium` / `high` | same string | `{ type: "enabled" }` |
-| `xhigh` / `max` | `"high"` (clamped) | `{ type: "enabled" }` |
+| `low` / `medium` / `high` / `max` | same string | *(omitted)* |
+| `xhigh` | `"max"` (mapped) | *(omitted)* |
 
 </details>
 
