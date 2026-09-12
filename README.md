@@ -1,6 +1,10 @@
-## opencode-kimi-full
+## opencode-kimi-oauth
 
 An [opencode](https://opencode.ai) plugin that makes the Kimi Code path in opencode work like the official `kimi-cli`, using Kimi-specific extensions instead of just a generic OpenAI-compatible provider.
+
+*Forked from [opencode-kimi-full](https://github.com/lemon07r/opencode-kimi-full) — credit to the original author for the design and implementation foundation. This repo is actively maintained against the latest opencode plugin API and Kimi's OAuth coding backend; the original has not been updated in ~4 months and ships outdated kimi-side and opencode-side config.*
+
+This plugin is **OAuth-only**. Kimi **API-key** users are out of scope — use opencode's built-in (models.dev) `kimi-for-coding` provider instead.
 
 Compared with stock opencode Kimi setups, this plugin:
 
@@ -19,8 +23,8 @@ Contributor and agent documentation lives in [`AGENTS.md`](./AGENTS.md).
 
 ### Quick Start
 
-1. Install the plugin globally: `opencode plugin opencode-kimi-full --global`
-2. If you are testing a local checkout instead of the published package, install the checkout path instead: `opencode plugin /absolute/path/to/opencode-kimi-full --global`
+1. Install the plugin globally: `opencode plugin opencode-kimi-oauth --global`
+2. If you are testing a local checkout instead of the published package, install the checkout path instead: `opencode plugin /absolute/path/to/opencode-kimi-oauth --global`
 3. Run `opencode auth login -p kimi-for-coding-oauth` and approve the device flow in your browser.
 4. Paste the provider block from [Configure](#configure) into your opencode config.
 5. Select `kimi-for-coding-oauth/kimi-for-coding` (K2.8 Preview), `kimi-for-coding-oauth/k3` / `kimi-for-coding-oauth/k3-256k` (K3), or `kimi-for-coding-oauth/kimi-for-coding-highspeed` (K2.7 HighSpeed) in opencode.
@@ -36,7 +40,7 @@ Contributor and agent documentation lives in [`AGENTS.md`](./AGENTS.md).
 Recommended:
 
 ```sh
-opencode plugin opencode-kimi-full --global
+opencode plugin opencode-kimi-oauth --global
 ```
 
 That installs the published package and adds the plugin to your global opencode config, so `opencode auth login -p kimi-for-coding-oauth` works from any directory.
@@ -44,7 +48,7 @@ That installs the published package and adds the plugin to your global opencode 
 From a local checkout:
 
 ```sh
-opencode plugin /absolute/path/to/opencode-kimi-full --global
+opencode plugin /absolute/path/to/opencode-kimi-oauth --global
 ```
 
 That is the command you want when you are editing this repo and want opencode to load your working tree. Changing files in a checkout does nothing unless opencode is pointed at that checkout path.
@@ -54,7 +58,7 @@ If you prefer managing plugin registration manually, add the plugin to the `plug
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-kimi-full"]
+  "plugin": ["opencode-kimi-oauth"]
 }
 ```
 
@@ -63,7 +67,7 @@ For a local checkout, point the `plugin` entry at the repo root instead of the n
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["/absolute/path/to/opencode-kimi-full"]
+  "plugin": ["/absolute/path/to/opencode-kimi-oauth"]
 }
 ```
 
@@ -189,14 +193,14 @@ That error means opencode did not load this plugin at all. The Kimi OAuth flow h
 
 The usual causes are:
 
-- You skipped `opencode plugin opencode-kimi-full --global` or `opencode plugin /absolute/path/to/opencode-kimi-full --global`.
+- You skipped `opencode plugin opencode-kimi-oauth --global` or `opencode plugin /absolute/path/to/opencode-kimi-oauth --global`.
 - You edited a local checkout, but opencode is not pointed at that checkout path.
 - You put the plugin in a project-local `.opencode/opencode.jsonc`, but ran `opencode auth login` from another directory.
 - You added the `provider` block, but not the `plugin` entry or plugin install.
 
 Fastest fix:
 
-1. Install the plugin globally with `opencode plugin opencode-kimi-full --global`, or `opencode plugin /absolute/path/to/opencode-kimi-full --global` for a checkout.
+1. Install the plugin globally with `opencode plugin opencode-kimi-oauth --global`, or `opencode plugin /absolute/path/to/opencode-kimi-oauth --global` for a checkout.
 2. Confirm your opencode config now contains the plugin entry.
 3. Run `opencode auth login -p kimi-for-coding-oauth` again.
 

@@ -740,6 +740,6 @@ const plugin: Plugin = async ({ client }) => {
 // For npm-sourced plugins, id is optional (falls back to package.json name),
 // but we set it explicitly for clarity.
 export default {
-  id: "opencode-kimi-full",
+  id: "opencode-kimi-oauth",
   server: plugin,
 } satisfies PluginModule

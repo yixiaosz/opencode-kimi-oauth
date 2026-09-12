@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "opencode-kimi-full",
+      "name": "opencode-kimi-oauth",
       "devDependencies": {
         "@opencode-ai/plugin": "^1.4.7",
         "@opentui/core": "^0.5.8",

@@ -158,6 +158,6 @@ const tui: TuiPlugin = async (api) => {
 }
 
 export default {
-  id: "opencode-kimi-full-usage",
+  id: "opencode-kimi-oauth-usage",
   tui,
 } satisfies TuiPluginModule

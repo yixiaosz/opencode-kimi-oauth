@@ -12,7 +12,7 @@ import { installFetchMock } from "./_util/fetchMock.ts"
 // shared with kimi-cli by design and writes are idempotent — no HOME
 // redirect needed.
 
-const TEST_XDG_DATA_HOME = path.join(os.tmpdir(), `opencode-kimi-full-test-${process.pid}`)
+const TEST_XDG_DATA_HOME = path.join(os.tmpdir(), `opencode-kimi-oauth-test-${process.pid}`)
 process.env.XDG_DATA_HOME = TEST_XDG_DATA_HOME
 delete process.env.OPENCODE_AUTH_CONTENT
 
@@ -27,7 +27,7 @@ afterEach(async () => {
 
 async function withTempAuthStore<T>(entry: unknown, run: (root: string) => Promise<T>) {
   const prev = process.env.XDG_DATA_HOME
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-kimi-full-"))
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-kimi-oauth-"))
   process.env.XDG_DATA_HOME = root
   await writeAuthStore(root, entry)
   try {

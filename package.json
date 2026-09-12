@@ -1,19 +1,19 @@
 {
-  "name": "opencode-kimi-full",
-  "version": "1.4.0",
+  "name": "opencode-kimi-oauth",
+  "version": "1.5.0",
   "description": "OpenCode plugin that brings the official Kimi OAuth device flow and Kimi-specific coding request fields to opencode, matching upstream kimi-cli.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lemon07r/opencode-kimi-full.git"
+    "url": "git+https://github.com/yixiaosz/opencode-kimi-oauth.git"
   },
-  "homepage": "https://github.com/lemon07r/opencode-kimi-full#readme",
+  "homepage": "https://github.com/yixiaosz/opencode-kimi-oauth#readme",
   "bugs": {
-    "url": "https://github.com/lemon07r/opencode-kimi-full/issues"
+    "url": "https://github.com/yixiaosz/opencode-kimi-oauth/issues"
   },
   "publishConfig": {
     "access": "public",
-    "provenance": true
+    "provenance": false
   },
   "type": "module",
   "main": "./src/index.ts",
