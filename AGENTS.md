@@ -39,7 +39,7 @@ Each source file has one job. Do not add new files unless the existing ones genu
 | `src/auth-refresh.ts`| Lock-based token refresh with cross-instance coordination, `ensureFreshStoredAuth` for standalone callers. |
 | `src/index.ts`     | Plugin entry (v1 `PluginModule` format). Wires `auth` (login + loader) plus the Kimi chat hooks/body rewrite. |
 | `src/usage.ts`     | Fetch and parse Kimi subscription usage (`/coding/v1/usages`).                 |
-| `src/tui.tsx`      | TUI slash command `/kimi:usage` — renders usage in an opencode dialog.         |
+| `src/tui.ts`       | TUI slash command `/kimi:usage` — renders usage in an opencode dialog.         |
 
 Data flow on a chat request:
 
@@ -78,12 +78,13 @@ These are the invariants that, if broken, silently route requests onto the wrong
 10. **The post-login config hint must not emit a partial `limit` object.** opencode's live config schema at `https://opencode.ai/config.json` requires both `limit.context` and `limit.output` whenever `limit` is present, while Kimi's `GET /coding/v1/models` only gives us `context_length`. Therefore `buildConfigBlock()` omits `limit` entirely and leaves `provider.models` to backfill `limit.context` at runtime. Do not invent `output` or set `input` heuristically; opencode's overflow logic treats `limit.input` as authoritative (`research/opencode/packages/opencode/src/session/overflow.ts`).
 11. **Concurrent refreshes must collapse to one in-flight OAuth exchange, even across plugin instances.** `provider.models` and `auth.loader` can both notice an expiring token at about the same time, and separate opencode workspace/plugin instances can inherit stale auth snapshots. `refreshAuth()` in `src/index.ts` therefore shares one promise across overlapping callers, takes a provider-scoped auth-store lock before refreshing, re-reads opencode's live auth-store entry under that lock, and treats a changed on-disk token chain as authoritative. `test/plugin.test.ts` covers loader-vs-loader, provider.models-vs-loader, cross-instance lock reuse, and the `invalid_grant` self-heal path where another process already rotated the refresh token.
 12. **Media-input capabilities must be backfilled from `/coding/v1/models`.** `supports_image_in` and `supports_video_in` from Kimi discovery are not cosmetic metadata: opencode's provider transform (`research/opencode/packages/opencode/src/provider/transform.ts::unsupportedParts`) rewrites every image part into local `ERROR: Cannot read ... (this model does not support image input)` text before the request reaches our loader when `capabilities.input.image` is false. Therefore `provider.models` must patch runtime model metadata for `kimi-for-coding`, and `buildConfigBlock()` must include `attachment: true` plus appropriate `modalities.input` / `modalities.output` when discovery says images/video are supported. `test/plugin.test.ts` covers both paths.
+13. **The npm TUI entry must stay JSX-free.** opencode installs npm plugins below `node_modules/`, but OpenTUI's solid transform excludes `node_modules` paths. Its runtime-module fallback prescans source-text imports before Bun transpiles the file, so a `.tsx` entry can acquire an injected `@opentui/solid/jsx-runtime` import too late to be rewritten. On opencode 1.18.30 this made the v1.5.0 npm package silently disappear from the TUI and `/kimi:usage` never registered, while a file-path install outside `node_modules` still worked. Keep `src/tui.ts` free of JSX, import `jsx` explicitly from `@opentui/solid/jsx-runtime`, and keep `exports["./tui"]` pointed at that `.ts` file. `test/exports.test.ts` guards the entry, source-visible imports, module shape, and command registration. See `research/opencode/packages/opencode/src/plugin/tui/runtime.ts`, `research/opencode/packages/tui/src/plugin/runtime.ts`, and OpenTUI's `packages/solid/scripts/solid-plugin.ts` / `packages/core/src/runtime-plugin.ts`.
 
 ### Working on this repo
 
 - **Code style:** see `tsconfig.json` (strict, `noUncheckedIndexedAccess`, ES2022). Prefer small pure functions, avoid `try`/`catch` except where we genuinely convert one error shape to another.
 - **Comments:** match the existing density — only explain non-obvious upstream-parity reasoning. Do not narrate the obvious ("// refresh the token"); instead reference upstream files when the reasoning is "because kimi-cli does it that way".
-- **Dependencies:** the plugin has **no runtime deps**. `@opentui/core` and `@opentui/solid` (for the TUI slash command) are *optional peer deps* — the host opencode install provides a version-matched copy — and *dev deps* solely so `tsc` can type-check `src/tui.tsx` (`jsxImportSource: @opentui/solid`). The peer floor (`>=0.4.5`) matches `@opencode-ai/plugin`'s own optional peer requirement. Never move them back to `dependencies`: hard-pinning `0.1.99` nested a copy whose `exports["./jsx-runtime"]` pointed at a type-only `.d.ts`, which shadowed the host renderer and made opencode silently drop the whole TUI plugin (`SyntaxError: Export named 'jsxDEV' not found`; diagnosed 2026-09-10 on opencode 1.18.30). The other dev/peer dep is `@opencode-ai/plugin` for types. Do not add runtime deps.
+- **Dependencies:** the plugin has **no runtime deps**. `@opentui/core` and `@opentui/solid` (for the TUI slash command) are *optional peer deps* — the host opencode install provides a version-matched copy — and *dev deps* solely so `tsc` can type-check `src/tui.ts` and its explicit JSX-runtime calls. The peer floor (`>=0.4.5`) matches the current `@opencode-ai/plugin` optional peer requirement and is the first verified line with executable `jsx` / `jsxs` exports. Never move OpenTUI back to `dependencies`: hard-pinning `0.1.99` nested a copy whose `exports["./jsx-runtime"]` pointed at a type-only `.d.ts`, which shadowed the host renderer and made opencode silently drop the whole TUI plugin (`SyntaxError: Export named 'jsxDEV' not found`; diagnosed 2026-09-10 on opencode 1.18.30). Removing that nested copy was necessary but did not make transpiler-injected imports in npm-hosted `.tsx` entries safe; rule 13 covers that separate failure. The other dev/peer dep is `@opencode-ai/plugin` for types. Do not add runtime deps.
 - **Git commits:** small, logical, imperative subject ("Add oauth device flow"). Do not add a `Co-authored-by` trailer.
 - **Upstream research:** the `research/` directory is a read-only git-ignored pair of shallow clones (opencode + kimi-cli) for grep. Never edit files there; re-clone if you suspect drift. When citing upstream in a comment, use the `research/…` path so the reference is resolvable.
 - **Version bumps:** when kimi-cli bumps, (1) pull a fresh `research/kimi-cli`, (2) update `KIMI_CLI_VERSION` in `src/constants.ts`, (3) re-diff `_kimi_default_headers()` / `oauth.py` against `src/headers.ts` and `src/oauth.ts`, (4) smoke-test with `opencode auth login kimi-for-coding-oauth` and a one-turn chat, (5) tag release.
@@ -96,6 +97,7 @@ These are the invariants that, if broken, silently route requests onto the wrong
 - ❌ Don't add new header values that kimi-cli doesn't send. The fingerprint matters.
 - ❌ Don't call out to other files to "share" the kimi-cli credentials. Different OAuth consumers must have independent refresh-token chains or one will invalidate the other.
 - ❌ Don't introduce a build step. The plugin ships as `.ts` and opencode's bun-based loader handles it.
+- ❌ Don't add JSX or rename the npm TUI entry back to `.tsx`; its runtime imports must remain visible in source text. See rule 13.
 - ❌ Don't add tests that require real Kimi credentials and check them in. If you add offline unit tests, put them under `test/` and mock `fetch`.
 - ❌ Don't add named exports to `src/index.ts` or change the default export away from the `{ id, server }` PluginModule shape. See rule 9.
 
@@ -107,6 +109,7 @@ Offline:
 bunx tsc --noEmit                                  # type-check
 bunx tsc --noEmit --project tsconfig.tests.json    # type-check tests/helpers
 bun build --target=node --no-bundle src/index.ts   # syntax check
+bun build --target=node --no-bundle src/tui.ts     # TUI syntax check
 bun test                                           # offline unit tests
 ```
 
@@ -118,8 +121,9 @@ Online (requires a real Kimi-for-coding account):
 4. Start opencode, select `kimi-for-coding-oauth/kimi-for-coding`, and ask the model to self-identify. It should claim to be `kimi-for-coding` / Kimi Code.
 5. Confirm `reasoning_content` deltas render as thinking content (not assistant text).
 6. In a second turn of the same session, confirm the response comes back faster (cache hit via `prompt_cache_key`).
+7. Confirm `/kimi:usage` appears in the command palette and opens the usage dialog. Test an npm-installed package, not only a file-path checkout, because rule 13 is specific to `node_modules` loading.
 
-If any of 3–6 fails, diff `research/kimi-cli` against the contracts above.
+If any of 3–7 fails, diff `research/kimi-cli` against the contracts above.
 
 ### House rules for AI agents
 

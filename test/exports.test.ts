@@ -1,6 +1,8 @@
 import { test, expect } from "bun:test"
 import fs from "node:fs"
+import type { TuiCommand, TuiPluginApi, TuiPluginMeta } from "@opencode-ai/plugin/tui"
 import * as mod from "../src/index.ts"
+import * as tuiMod from "../src/tui.ts"
 
 // Regression guard for the 1.0.0 bug + the Windows loading fix:
 // opencode's plugin loader first tries readV1Plugin (detect mode) on the
@@ -27,6 +29,50 @@ test("package exposes a separate TUI entrypoint", () => {
   const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
     exports?: Record<string, string>
   }
-  expect(pkg.exports?.["./tui"]).toBe("./src/tui.tsx")
-  expect(fs.existsSync(new URL("../src/tui.tsx", import.meta.url))).toBe(true)
+  expect(pkg.exports?.["./tui"]).toBe("./src/tui.ts")
+  expect(fs.existsSync(new URL("../src/tui.ts", import.meta.url))).toBe(true)
+})
+
+test("TUI entry exposes one plugin module and registers kimi:usage", async () => {
+  expect(Object.keys(tuiMod)).toEqual(["default"])
+  expect(tuiMod.default.id).toBe("opencode-kimi-oauth-usage")
+  expect(typeof tuiMod.default.tui).toBe("function")
+
+  let registered: (() => TuiCommand[]) | undefined
+  const api = {
+    command: {
+      register(cb: () => TuiCommand[]) {
+        registered = cb
+        return () => {}
+      },
+    },
+  } as unknown as TuiPluginApi
+
+  await tuiMod.default.tui(api, undefined, {} as TuiPluginMeta)
+  expect(registered).toBeDefined()
+  const command = registered?.().find((item) => item.value === "kimi.usage")
+  expect(command?.slash?.name).toBe("kimi:usage")
+  expect(typeof command?.onSelect).toBe("function")
+})
+
+test("TUI entry keeps runtime imports visible to opencode's node_modules prescan", () => {
+  const source = fs.readFileSync(new URL("../src/tui.ts", import.meta.url), "utf8")
+  const patterns = [
+    /from\s+["']([^"']+)["']/g,
+    /import\s+["']([^"']+)["']/g,
+    /import\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /require\s*\(\s*["']([^"']+)["']\s*\)/g,
+  ]
+  const bare = new Set<string>()
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      const specifier = match[1]
+      if (specifier && !specifier.startsWith(".")) bare.add(specifier)
+    }
+  }
+
+  expect([...bare].sort()).toEqual(["@opencode-ai/plugin/tui", "@opentui/solid/jsx-runtime"])
+  expect(source).toMatch(/import\s+\{\s*jsx,\s*type\s+JSX\s*\}\s+from\s+["']@opentui\/solid\/jsx-runtime["']/)
+  expect(source).toMatch(/import\s+type\s+\{[^}]+\}\s+from\s+["']@opencode-ai\/plugin\/tui["']/)
+  expect(source).not.toContain("@jsxImportSource")
 })
