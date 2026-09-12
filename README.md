@@ -1,10 +1,10 @@
-## opencode-kimi-oauth
+# opencode-kimi-oauth
 
 An [opencode](https://opencode.ai) plugin that makes the Kimi Code path in opencode work like the official `kimi-cli`, using Kimi-specific extensions instead of just a generic OpenAI-compatible provider.
 
-*Forked from [opencode-kimi-full](https://github.com/lemon07r/opencode-kimi-full) — credit to the original author for the design and implementation foundation. This repo is actively maintained against the latest opencode plugin API and Kimi's OAuth coding backend; the original has not been updated in ~4 months and ships outdated kimi-side and opencode-side config.*
+> *Forked from [opencode-kimi-full](https://github.com/lemon07r/opencode-kimi-full) — credit to the original author for the design and implementation foundation; the original has stopped updating and ships outdated kimi-side and opencode-side config.*
 
-This plugin is **OAuth-only**. Kimi **API-key** users are out of scope — use opencode's built-in (models.dev) `kimi-for-coding` provider instead.
+This plugin is **OAuth-only**. Kimi **API-key** users should use opencode's built-in (models.dev) `kimi-for-coding` provider instead.
 
 Compared with stock opencode Kimi setups, this plugin:
 
@@ -19,9 +19,18 @@ Compared with stock opencode Kimi setups, this plugin:
 
 Contributor and agent documentation lives in [`AGENTS.md`](./AGENTS.md).
 
+## Supported Kimi Modes (as of 9/12/2026)
+
+| Model ID | Model version | Description | Speed | Context window | Reasoning | Availability | Multimodal input |
+|---|---|---|---|---|---|---|---|
+| k3 | K3 | The most capable flagship coding model: 2.8T parameters, 1M context window | Regular | 1048576 (for higher-tier members) | reasoning_effort: low / high / max (default high) | Available to Moderato and above; 1M context for Allegretto and above | Image, video |
+| k3-256k | K3 | The 256K context version of K3 — k3 (1M) consumes about twice as much quota as k3-256k | Regular | 262144 only | reasoning_effort: low / high / max (default high) | Available to all Moderato members and above | Image only |
+| kimi-for-coding | K2.8 Preview | Performance close to K3 with more efficient thinking; good at code completion and routine development tasks | Regular | 1048576 | reasoning_effort: low / high / max (default max) | All members | Image, video |
+| kimi-for-coding-highspeed | K2.7 Code HighSpeed | The high-speed version of K2.7 Code, with the same coding ability and ~5–6× faster output | HighSpeed (6× speed, 3× quota usage) | 262144 | Thinking: ON | Allegretto plan or above | — |
+
 ---
 
-### Quick Start
+## Quick Start
 
 1. Install the plugin globally: `opencode plugin opencode-kimi-oauth --global`
 2. If you are testing a local checkout instead of the published package, install the checkout path instead: `opencode plugin /absolute/path/to/opencode-kimi-oauth --global`
@@ -29,13 +38,13 @@ Contributor and agent documentation lives in [`AGENTS.md`](./AGENTS.md).
 4. Paste the provider block from [Configure](#configure) into your opencode config.
 5. Select `kimi-for-coding-oauth/kimi-for-coding` (K2.8 Preview), `kimi-for-coding-oauth/k3` / `kimi-for-coding-oauth/k3-256k` (K3), or `kimi-for-coding-oauth/kimi-for-coding-highspeed` (K2.7 HighSpeed) in opencode.
 
-### Requirements
+## Requirements
 
 - `opencode` >= 1.4.6
 - A Kimi account with an active **Kimi For Coding** subscription (the same plan that works with kimi-cli)
 - For the `/kimi:usage` TUI command: an opencode version that ships `@opentui/solid` >= 0.4.5 (opencode >= ~1.18). On older versions the server side (auth, chat, model discovery) still works; the TUI command just won't register.
 
-### Install
+## Install
 
 Recommended:
 
@@ -73,7 +82,7 @@ For a local checkout, point the `plugin` entry at the repo root instead of the n
 
 If you use a project-local `.opencode/opencode.jsonc`, the plugin only exists when you run `opencode` inside that project tree. If you want `opencode auth login` to work from anywhere, use the `--global` install above.
 
-### Configure
+## Configure
 
 After the plugin is installed and login works, paste this provider entry into `~/.config/opencode/opencode.jsonc` or `.opencode/opencode.jsonc`:
 
@@ -169,7 +178,7 @@ Use these ids exactly as written:
 
 > **Note.** The provider id is intentionally not `kimi-for-coding`. That id is already published by [models.dev](https://models.dev) and points at a static-API-key flow using a different SDK and auth shape. Using a distinct id keeps the two paths from colliding under a single `opencode auth login` entry.
 
-### Log in
+## Log in
 
 ```sh
 opencode auth login -p kimi-for-coding-oauth
@@ -229,7 +238,7 @@ The plugin also backfills these capabilities at runtime from `/coding/v1/models`
 
 </details>
 
-### Use
+## Use
 
 Select `kimi-for-coding-oauth/kimi-for-coding` (K2.8 Preview), `kimi-for-coding-oauth/k3` / `kimi-for-coding-oauth/k3-256k` (K3), or `kimi-for-coding-oauth/kimi-for-coding-highspeed` (K2.7 HighSpeed) in opencode.
 
@@ -249,7 +258,7 @@ Kimi's coding backend accepts `low` / `high` / `max` on all these models (K3 and
 
 Every request to these models also gets `prompt_cache_key` set to opencode's session id. That mirrors `kimi-cli`'s cache hint so follow-up turns in the same session can reuse Kimi's prompt cache.
 
-#### Usage command
+### Usage command
 
 The plugin registers a `/kimi:usage` TUI slash command that shows your Kimi Code subscription usage (weekly and rolling-window limits) in a compact dialog. Run it from the opencode command palette.
 
@@ -335,6 +344,6 @@ A full description of the invariants that keep this working is in [`AGENTS.md`](
 
 </details>
 
-### License
+## License
 
 MIT.
