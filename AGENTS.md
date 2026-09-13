@@ -2,7 +2,7 @@
 
 This file is the single source of truth for any AI agent (or human) modifying this repo. Read it top-to-bottom before touching code. If something you learn here contradicts what you see in the code, the **code wins** — update this file in the same commit.
 
-User-facing install / usage documentation lives in [`README.md`](./README.md). Do **not** duplicate it here.
+User-facing install / usage documentation lives in [`README.md`](./README.md) and its Simplified Chinese mirror [`README_zh.md`](./README_zh.md). Keep both files synchronized whenever either one changes. Do **not** duplicate their content here.
 
 ---
 
@@ -130,5 +130,5 @@ If any of 3–7 fails, diff `research/kimi-cli` against the contracts above.
 - Read this file first. Every time.
 - Don't grow the dependency footprint to "simplify" something; this plugin's value is being small and audit-able.
 - When in doubt, mirror kimi-cli exactly, then comment the upstream reference. "We used to deviate, it broke" — document it here.
-- Keep `README.md` user-focused and this file contributor-focused. If you catch yourself duplicating, move content here and link from the README.
+- Keep `README.md` and `README_zh.md` user-focused and this file contributor-focused. Every user-facing documentation update must be applied to both README files in the same change. If you catch yourself duplicating contributor material, move it here and link from both READMEs.
 - Any new rule you add here must have a real incident or a grep-verified upstream source behind it. No speculative "best practices".

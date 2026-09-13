@@ -1,5 +1,7 @@
 # opencode-kimi-oauth
 
+[English](./README.md) | [简体中文](./README_zh.md)
+
 Use **Kimi For Coding** in [opencode](https://opencode.ai) through Kimi's official device-flow OAuth, the same way the official `kimi-cli` does.
 
 > **OAuth only.** If you have a Kimi API key, use opencode's built-in `kimi-for-coding` provider instead.

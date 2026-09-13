@@ -25,6 +25,7 @@
   "files": [
     "src",
     "README.md",
+    "README_zh.md",
     "AGENTS.md",
     "LICENSE"
   ],
