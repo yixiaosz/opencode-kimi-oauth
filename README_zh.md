@@ -6,12 +6,14 @@
 
 > **仅支持 OAuth。** 如果你使用按量计费的 Kimi API 密钥，请改用 opencode 内置的 `kimi-for-coding`。
 
+> **仅支持 OpenCode v1。** 本插件面向 OpenCode **1.x** 及其 v1 `PluginModule` API，**不兼容 OpenCode v2**（2.x），因为 v2 使用了不同的插件格式。
+
 与常规的 OpenAI 兼容 Kimi 配置相比，本插件：
 
 - 使用 Kimi 官方 OAuth 设备流登录，并将令牌存储在 opencode 中
 - 发送 kimi-cli 的 `User-Agent` 和七个 `X-Msh-*` 指纹请求头（包括共用的 `~/.kimi/device_id`）
 - 为 Kimi 编程模型添加 `prompt_cache_key` 和 `reasoning_effort`
-- 通过 `/coding/v1/models` 发现你的账户实际使用的模型标识、上下文长度以及图像/视频支持情况
+- 通过 `/coding/v1/models` 发现你的账户实际使用的模型标识，以及每个模型的上下文长度和图像/视频支持情况
 
 贡献者文档和参考资料位于 [`AGENTS.md`](./AGENTS.md)。
 
@@ -21,18 +23,20 @@
 
 | 模型 ID | 模型 | 上下文 | 推理 | 多模态输入 | 可用范围 |
 |---|---|---|---|---|---|
+| `k3.1-pro` | K3.1 Pro | 最高 1M | `low` / `high` / `max`（默认 `high`；不能禁用思考） | 图像、视频 | Plus/Moderato 及以上；Pro/Allegretto 及以上支持 1M 上下文 |
+| `k3.1-pro-highspeed` | K3.1 Pro Highspeed | 最高 1M | `low` / `high` / `max`（默认 `high`；不能禁用思考） | 图像、视频 | Pro/Allegretto 及以上 |
+| `k3` | K3 | 最高 1M | `low` / `high` / `max`（默认 `high`） | 图像、视频 | Plus/Moderato 及以上；Pro/Allegretto 及以上支持 1M 上下文 |
+| `k3-256k` | K3 | 256K | `low` / `high` / `max`（默认 `high`） | 图像 | Plus/Moderato 及以上 |
 | `kimi-for-coding` | K2.8 Preview | 1M | `low` / `high` / `max`（默认 `max`） | 图像、视频 | 所有会员 |
-| `k3` | K3 | 1M | `low` / `high` / `max`（默认 `high`） | 图像、视频 | Moderato 及以上；Allegretto 及以上支持 1M 上下文 |
-| `k3-256k` | K3 | 256K | `low` / `high` / `max`（默认 `high`） | 图像 | Moderato 及以上 |
-| `kimi-for-coding-highspeed` | K2.7 Code HighSpeed | 256K | 始终启用思考 | — | Allegretto 及以上 |
+| `kimi-for-coding-highspeed` | K2.7 Code HighSpeed | 256K | 始终启用思考 | 图像、视频 | Pro/Allegretto 及以上 |
 
-> 此表与 [Kimi 的 OAuth 模型配置](https://www.kimi.com/code/docs/en/kimi-code/models.html)一致（最后更新于 2026 年 9 月）。
+> 此表与 [Kimi 的 OAuth 模型配置](https://www.kimi.com/code/docs/en/kimi-code/models.html)一致（最后更新于 2026 年 10 月）。实际上下文长度因账户而异，并会在运行时从 `/coding/v1/models` 回填。
 
 ---
 
 ## 快速开始
 
-**要求：** opencode >= 1.4.6，并已开通月费或年费的 Kimi 会员订阅。
+**要求：** opencode **1.x**（>= 1.4.6；不支持 2.x），并已开通月费或年费的 Kimi 会员订阅。
 
 ### 1. 安装插件
 
@@ -103,6 +107,38 @@ opencode auth login -p kimi-for-coding-oauth
             "max":    { "reasoning_effort": "max" }
           }
         },
+        "k3.1-pro": {
+          "name": "K3.1 Pro",
+          "attachment": true,
+          "reasoning": true,
+          "modalities": {
+            "input": ["text", "image", "video"],
+            "output": ["text"]
+          },
+          "options": {},
+          "variants": {
+            "auto": { "reasoning_effort": "auto" },
+            "low":  { "reasoning_effort": "low" },
+            "high": { "reasoning_effort": "high" },
+            "max":  { "reasoning_effort": "max" }
+          }
+        },
+        "k3.1-pro-highspeed": {
+          "name": "K3.1 Pro Highspeed",
+          "attachment": true,
+          "reasoning": true,
+          "modalities": {
+            "input": ["text", "image", "video"],
+            "output": ["text"]
+          },
+          "options": {},
+          "variants": {
+            "auto": { "reasoning_effort": "auto" },
+            "low":  { "reasoning_effort": "low" },
+            "high": { "reasoning_effort": "high" },
+            "max":  { "reasoning_effort": "max" }
+          }
+        },
         "k3": {
           "name": "K3",
           "attachment": true,
@@ -159,20 +195,22 @@ opencode auth login -p kimi-for-coding-oauth
 
 在 opencode 中选择以下任一模型：
 
-- `kimi-for-coding-oauth/kimi-for-coding` — K2.8 Preview
-- `kimi-for-coding-oauth/k3` — 上下文长度为 1M 的 K3
+- `kimi-for-coding-oauth/k3.1-pro` — K3.1 Pro（最新旗舰，最高 1M 上下文）
+- `kimi-for-coding-oauth/k3.1-pro-highspeed` — K3.1 Pro Highspeed
+- `kimi-for-coding-oauth/k3` — 最高 1M 上下文的 K3
 - `kimi-for-coding-oauth/k3-256k` — 上下文长度为 256K 的 K3
+- `kimi-for-coding-oauth/kimi-for-coding` — K2.8 Preview
 - `kimi-for-coding-oauth/kimi-for-coding-highspeed` — K2.7 Code HighSpeed
 
 ## 变体切换
 
 opencode 默认的变体切换快捷键是 **Ctrl+T**：
 
-- `off` — 禁用思考
-- `auto` — 由服务器选择模型默认值
+- `off` — 禁用思考（K3.1 Pro 不支持；禁用思考的请求会返回 HTTP 400）
+- `auto` — 由服务器选择模型默认值（K3.1 Pro/K3 为 `high`，K2.8 为 `max`）
 - `low` / `medium` / `high` / `max` — 请求使用相应的推理强度
 
-Kimi 编程后端接受 `low` / `high` / `max`；opencode 的 `xhigh` 会映射为 `max`。`kimi-for-coding-highspeed` 没有变体。每个请求还会将 `prompt_cache_key` 设置为 opencode 的会话 ID，以便后续轮次复用 Kimi 的提示词缓存。
+Kimi 编程后端接受 `low` / `high` / `max`；opencode 的 `xhigh` 会映射为 `max`。K3.1 Pro 模型只支持思考模式，没有 `off` 变体。`kimi-for-coding-highspeed` 没有变体。每个请求还会将 `prompt_cache_key` 设置为 opencode 的会话 ID，以便后续轮次复用 Kimi 的提示词缓存。
 
 ## 用量命令
 

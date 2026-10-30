@@ -11,6 +11,11 @@ linked source and re-verify against the current `kimi-code` before executing.
 **Status:** Postponed — the current kimi-cli fingerprint still works against
 `api.kimi.com/coding/v1`. Migrating is a future improvement, not a bug fix.
 
+> **Version note (2026-10-30):** the plugin now pins `kimi-cli` 1.52.0, the
+> latest release. The kimi-code fingerprint below was verified against 0.42.0;
+> kimi-code CLI has since moved to 2.4.0. Re-verify against the installed binary
+> before migrating.
+
 ### Why
 
 `kimi-cli` is deprecated by Moonshot; the current official client is `kimi-code`.

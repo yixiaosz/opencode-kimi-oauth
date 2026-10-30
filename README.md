@@ -6,12 +6,14 @@ Use **Kimi For Coding** in [opencode](https://opencode.ai) through Kimi's offici
 
 > **OAuth only.** If you have a Kimi API key, use opencode's built-in `kimi-for-coding` provider instead.
 
+> **OpenCode v1 only.** This plugin targets OpenCode **1.x** and its v1 `PluginModule` API. It is **not compatible with OpenCode v2** (2.x), which uses a different plugin format.
+
 Compared with a stock OpenAI-compatible Kimi setup, this plugin:
 
 - logs in with the official Kimi OAuth device flow and stores tokens in opencode's auth store
 - sends kimi-cli's `User-Agent` and seven `X-Msh-*` fingerprint headers (including the shared `~/.kimi/device_id`)
 - adds `prompt_cache_key` and `reasoning_effort` for Kimi coding models
-- discovers your account's real model slug, context length, and image/video support from `/coding/v1/models`
+- discovers your account's real model slug and per-model context/image/video limits from `/coding/v1/models`
 
 Contributor and reference documentation lives in [`AGENTS.md`](./AGENTS.md).
 
@@ -21,18 +23,20 @@ Contributor and reference documentation lives in [`AGENTS.md`](./AGENTS.md).
 
 | Model id | Model | Context | Reasoning | Multimodal input | Availability |
 |---|---|---|---|---|---|
+| `k3.1-pro` | K3.1 Pro | up to 1M | `low` / `high` / `max` (default `high`; thinking cannot be disabled) | image, video | Plus/Moderato+; 1M context at Pro/Allegretto+ |
+| `k3.1-pro-highspeed` | K3.1 Pro Highspeed | up to 1M | `low` / `high` / `max` (default `high`; thinking cannot be disabled) | image, video | Pro/Allegretto+ |
+| `k3` | K3 | up to 1M | `low` / `high` / `max` (default `high`) | image, video | Plus/Moderato+; 1M context at Pro/Allegretto+ |
+| `k3-256k` | K3 | 256K | `low` / `high` / `max` (default `high`) | image | Plus/Moderato+ |
 | `kimi-for-coding` | K2.8 Preview | 1M | `low` / `high` / `max` (default `max`) | image, video | All members |
-| `k3` | K3 | 1M | `low` / `high` / `max` (default `high`) | image, video | Moderato+; 1M context at Allegretto+ |
-| `k3-256k` | K3 | 256K | `low` / `high` / `max` (default `high`) | image | Moderato+ |
-| `kimi-for-coding-highspeed` | K2.7 Code HighSpeed | 256K | always thinking | — | Allegretto+ |
+| `kimi-for-coding-highspeed` | K2.7 Code HighSpeed | 256K | always thinking | image, video | Pro/Allegretto+ |
 
-> This table matches [Kimi's OAuth model configuration](https://www.kimi.com/code/docs/en/kimi-code/models.html) (last updated 9/2026).
+> This table matches [Kimi's OAuth model configuration](https://www.kimi.com/code/docs/en/kimi-code/models.html) (last updated 10/2026). Actual context length is account-specific and is backfilled at runtime from `/coding/v1/models`.
 
 ---
 
 ## Quick start
 
-**Requirements:** opencode >= 1.4.6 and an active Kimi For Coding subscription.
+**Requirements:** opencode **1.x** (>= 1.4.6; not 2.x) and an active Kimi For Coding subscription.
 
 ### 1. Install the plugin
 
@@ -103,6 +107,38 @@ On login, the plugin prints a ready-to-paste JSON block. Merge its `provider` ke
             "max":    { "reasoning_effort": "max" }
           }
         },
+        "k3.1-pro": {
+          "name": "K3.1 Pro",
+          "attachment": true,
+          "reasoning": true,
+          "modalities": {
+            "input": ["text", "image", "video"],
+            "output": ["text"]
+          },
+          "options": {},
+          "variants": {
+            "auto": { "reasoning_effort": "auto" },
+            "low":  { "reasoning_effort": "low" },
+            "high": { "reasoning_effort": "high" },
+            "max":  { "reasoning_effort": "max" }
+          }
+        },
+        "k3.1-pro-highspeed": {
+          "name": "K3.1 Pro Highspeed",
+          "attachment": true,
+          "reasoning": true,
+          "modalities": {
+            "input": ["text", "image", "video"],
+            "output": ["text"]
+          },
+          "options": {},
+          "variants": {
+            "auto": { "reasoning_effort": "auto" },
+            "low":  { "reasoning_effort": "low" },
+            "high": { "reasoning_effort": "high" },
+            "max":  { "reasoning_effort": "max" }
+          }
+        },
         "k3": {
           "name": "K3",
           "attachment": true,
@@ -159,20 +195,22 @@ On login, the plugin prints a ready-to-paste JSON block. Merge its `provider` ke
 
 Select one of these in opencode:
 
-- `kimi-for-coding-oauth/kimi-for-coding` — K2.8 Preview
-- `kimi-for-coding-oauth/k3` — K3 with 1M context
+- `kimi-for-coding-oauth/k3.1-pro` — K3.1 Pro (latest flagship, up to 1M context)
+- `kimi-for-coding-oauth/k3.1-pro-highspeed` — K3.1 Pro Highspeed
+- `kimi-for-coding-oauth/k3` — K3 with up to 1M context
 - `kimi-for-coding-oauth/k3-256k` — K3 with 256K context
+- `kimi-for-coding-oauth/kimi-for-coding` — K2.8 Preview
 - `kimi-for-coding-oauth/kimi-for-coding-highspeed` — K2.7 Code HighSpeed
 
 ## Variant cycle
 
 opencode's default variant-cycle keybind is **Ctrl+T**:
 
-- `off` — disables thinking
-- `auto` — lets the server choose the model default
+- `off` — disables thinking (not available on K3.1 Pro, which rejects disabled thinking with HTTP 400)
+- `auto` — lets the server choose the model default (`high` for K3.1 Pro/K3, `max` for K2.8)
 - `low` / `medium` / `high` / `max` — asks for that reasoning effort
 
-Kimi's coding backend accepts `low` / `high` / `max`; opencode's `xhigh` maps to `max`. `kimi-for-coding-highspeed` has no variants. Every request also sets `prompt_cache_key` to opencode's session id so follow-up turns can reuse Kimi's prompt cache.
+Kimi's coding backend accepts `low` / `high` / `max`; opencode's `xhigh` maps to `max`. K3.1 Pro models are thinking-only and have no `off` variant. `kimi-for-coding-highspeed` has no variants. Every request also sets `prompt_cache_key` to opencode's session id so follow-up turns can reuse Kimi's prompt cache.
 
 ## Usage command
 
