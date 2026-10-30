@@ -1,7 +1,18 @@
 import type { Plugin, PluginModule } from "@opencode-ai/plugin"
 import { isAuthExpiring, refreshAuthWithLock } from "./auth-refresh.ts"
 import { isOAuthAuth, readAuth, type OAuthAuth } from "./auth-store.ts"
-import { API_BASE_URL, HIGHSPEED_MODEL_ID, K3_256K_MODEL_ID, K3_MODEL_ID, KIMI_MODEL_IDS, MODEL_ID, PROVIDER_ID } from "./constants.ts"
+import {
+  API_BASE_URL,
+  HIGHSPEED_MODEL_ID,
+  K3_1_PRO_HIGHSPEED_MODEL_ID,
+  K3_1_PRO_MODEL_ID,
+  K3_256K_MODEL_ID,
+  K3_MODEL_ID,
+  KIMI_MODEL_IDS,
+  MODEL_ID,
+  PROVIDER_ID,
+  THINKING_REQUIRED_MODEL_IDS,
+} from "./constants.ts"
 import { kimiHeaders } from "./headers.ts"
 import { type KimiModelInfo, listModels, pollDeviceToken, startDeviceAuth } from "./oauth.ts"
 
@@ -21,6 +32,8 @@ type ModelDiscovery = {
   supports_image_in?: boolean
   supports_video_in?: boolean
 }
+
+type ModelDiscoveryIndex = Record<string, ModelDiscovery>
 
 type ThinkingType = "enabled" | "disabled"
 
@@ -91,6 +104,7 @@ function pickEffort(options: Record<string, unknown> | undefined) {
 // clamping.
 function mapEffort(effort: string): string {
   if (effort === "xhigh") return "max"
+  if (effort === "none" || effort === "disabled") return "off"
   return effort
 }
 
@@ -104,21 +118,28 @@ function resolveKimiBodyFields(input: KimiHookInput): KimiBodyFields | undefined
     : undefined
 
   const fields: KimiBodyFields = { prompt_cache_key: input.sessionID }
-  const thinking = asThinking(variantOptions?.thinking) ?? asThinking(modelOptions?.thinking)
+  const thinkingRequired = THINKING_REQUIRED_MODEL_IDS.has(input.model.id)
+  let thinking = asThinking(variantOptions?.thinking) ?? asThinking(modelOptions?.thinking)
+  if (thinkingRequired && thinking?.type === "disabled") thinking = undefined
+
   const rawEffort = pickEffort(variantOptions) ?? pickEffort(modelOptions)
   const effort = rawEffort ? mapEffort(rawEffort) : undefined
+  // K3.1 Pro only supports thinking mode; the backend rejects disabled
+  // thinking with HTTP 400. Treat a stale `off` variant as `auto` so old
+  // configs keep working instead of failing the request.
+  const effectiveEffort = thinkingRequired && effort === "off" ? undefined : effort
 
   // `auto`/unset → send neither field; the server picks the model default
-  // (high for K3, max for K2.8). `off` → thinking disabled only. Explicit
-  // effort → reasoning_effort only. kimi-code's OpenAI-protocol kosong
-  // provider never sends `thinking: {type: "enabled"}` — that shape belongs
-  // to the Anthropic-protocol adapter — so we no longer force-emit it.
-  if (effort === "auto") return fields
-  if (effort === "off") {
+  // (high for K3.1 Pro/K3, max for K2.8). `off` → thinking disabled only.
+  // Explicit effort → reasoning_effort only. kimi-code's OpenAI-protocol
+  // kosong provider never sends `thinking: {type: "enabled"}` — that shape
+  // belongs to the Anthropic-protocol adapter — so we no longer force-emit it.
+  if (effectiveEffort === "auto") return fields
+  if (effectiveEffort === "off") {
     fields.thinking = { type: "disabled" }
     return fields
   }
-  if (effort) fields.reasoning_effort = effort
+  if (effectiveEffort) fields.reasoning_effort = effectiveEffort
   if (thinking) fields.thinking = thinking
   return fields
 }
@@ -158,16 +179,25 @@ function hasKimiBodyFields(fields: KimiBodyFields) {
   return Boolean(fields.prompt_cache_key || fields.reasoning_effort || fields.thinking)
 }
 
+function toModelDiscovery(model: KimiModelInfo): ModelDiscovery {
+  return {
+    model_id: model.id,
+    context_length: model.context_length,
+    model_display: model.display_name,
+    supports_image_in: model.supports_image_in,
+    supports_video_in: model.supports_video_in,
+  }
+}
+
+function indexModels(models: KimiModelInfo[]): ModelDiscoveryIndex {
+  const index: ModelDiscoveryIndex = {}
+  for (const model of models) index[model.id] = toModelDiscovery(model)
+  return index
+}
+
 function pickModelInfo(models: KimiModelInfo[]): ModelDiscovery {
   const picked = models.find((m) => m.id === MODEL_ID) ?? models[0]
-  if (!picked) return {}
-  return {
-    model_id: picked.id,
-    context_length: picked.context_length,
-    model_display: picked.display_name,
-    supports_image_in: picked.supports_image_in,
-    supports_video_in: picked.supports_video_in,
-  }
+  return picked ? toModelDiscovery(picked) : {}
 }
 
 function withDiscoveredContext<T extends ModelWithDiscoveryMetadata>(model: T, contextLength: number | undefined): T {
@@ -276,19 +306,27 @@ function withDiscoveredMediaInput<T extends ModelWithDiscoveryMetadata>(
   }
 }
 
-function applyDiscoveryToModels<T extends Record<string, ModelWithDiscoveryMetadata>>(models: T, discovery: ModelDiscovery): T {
-  const current = models[MODEL_ID]
-  if (!current) return models
-  const next = withDiscoveredMediaInput(
-    withDiscoveredContext(withDiscoveredDisplayName(current, discovery.model_display), discovery.context_length),
-    discovery.supports_image_in,
-    discovery.supports_video_in,
-  )
-  if (next === current) return models
-  return {
-    ...models,
-    [MODEL_ID]: next,
+function applyDiscoveryToModels<T extends Record<string, ModelWithDiscoveryMetadata>>(
+  models: T,
+  discovery: ModelDiscoveryIndex,
+): T {
+  let next = models
+  for (const id of KIMI_MODEL_IDS) {
+    const current = next[id]
+    const info = discovery[id]
+    if (!current || !info) continue
+    // The server's display_name is authoritative only for the stable alias.
+    // Curated static names for the real wire slugs (for example K3.1 Pro
+    // Highspeed) stay readable in the model picker.
+    const withName = id === MODEL_ID ? withDiscoveredDisplayName(current, info.model_display) : current
+    const patched = withDiscoveredMediaInput(
+      withDiscoveredContext(withName, info.context_length),
+      info.supports_image_in,
+      info.supports_video_in,
+    )
+    if (patched !== current) next = { ...next, [id]: patched }
   }
+  return next
 }
 
 function buildConfigBlock(info: { model_id: string; display?: string; supports_image_in?: boolean; supports_video_in?: boolean }) {
@@ -328,13 +366,23 @@ function buildConfigBlock(info: { model_id: string; display?: string; supports_i
     }
   }
 
-  // K3 entries are static: `/coding/v1/models` discovery describes only the
-  // kimi-for-coding entitlement, not K3. Capabilities below reflect the K3
-  // launch specs (K3: vision+video; K3-256k: vision, no video). All tiers
-  // (low/high/max) pass through unclamped — the coding backend supports
-  // `max` on K3 and K2.8 (kimi-for-coding).
+  // The real-slug entries are static: `/coding/v1/models` backfills their
+  // account-specific context and media capabilities at runtime, but the
+  // generated config must already advertise the launch specs. K3.1 Pro:
+  // vision+video, thinking-only. K3: vision+video. K3-256k: vision, no video.
+  // All tiers (low/high/max) pass through unclamped — the coding backend
+  // supports `max` on K3.1 Pro, K3, and K2.8.
   const k3Variants = {
     off: { reasoning_effort: "off" },
+    auto: { reasoning_effort: "auto" },
+    low: { reasoning_effort: "low" },
+    high: { reasoning_effort: "high" },
+    max: { reasoning_effort: "max" },
+  }
+  // K3.1 Pro rejects thinking disabled with HTTP 400, so `off` must not be
+  // offered. `auto` sends neither field and lets the server use its high
+  // default.
+  const k3ThinkingOnlyVariants = {
     auto: { reasoning_effort: "auto" },
     low: { reasoning_effort: "low" },
     high: { reasoning_effort: "high" },
@@ -350,6 +398,22 @@ function buildConfigBlock(info: { model_id: string; display?: string; supports_i
           options: { baseURL: API_BASE_URL },
           models: {
             [MODEL_ID]: modelConfig,
+            [K3_1_PRO_MODEL_ID]: {
+              name: "K3.1 Pro",
+              reasoning: true,
+              options: {},
+              variants: k3ThinkingOnlyVariants,
+              attachment: true,
+              modalities: { input: ["text", "image", "video"], output: ["text"] },
+            },
+            [K3_1_PRO_HIGHSPEED_MODEL_ID]: {
+              name: "K3.1 Pro Highspeed",
+              reasoning: true,
+              options: {},
+              variants: k3ThinkingOnlyVariants,
+              attachment: true,
+              modalities: { input: ["text", "image", "video"], output: ["text"] },
+            },
             [K3_MODEL_ID]: {
               name: "K3",
               reasoning: true,
@@ -416,6 +480,7 @@ const plugin: Plugin = async ({ client }) => {
   // --- helpers ---------------------------------------------------------------
 
   let cachedDiscovery: ModelDiscovery = {}
+  let cachedModelIndex: ModelDiscoveryIndex = {}
   let refreshPromise: Promise<OAuthAuth> | undefined
 
   const syncProcessAuthContent = (auth: OAuthAuth) => {
@@ -433,9 +498,11 @@ const plugin: Plugin = async ({ client }) => {
     syncProcessAuthContent(auth)
   }
 
-  const rememberDiscovery = (discovery: ModelDiscovery) => {
-    if (discovery.model_id) cachedDiscovery = discovery
-    return cachedDiscovery
+  const rememberDiscovery = (models: KimiModelInfo[]) => {
+    cachedModelIndex = indexModels(models)
+    const alias = pickModelInfo(models)
+    if (alias.model_id) cachedDiscovery = alias
+    return { alias: cachedDiscovery, index: cachedModelIndex }
   }
 
   const readLiveAuth = async () => {
@@ -483,8 +550,10 @@ const plugin: Plugin = async ({ client }) => {
       models: async (provider, ctx) => {
         if (!isOAuthAuth(ctx.auth)) return provider.models
 
-        const discover = async (auth: OAuthAuth) =>
-          applyDiscoveryToModels(provider.models, rememberDiscovery(pickModelInfo(await listModels(auth.access))))
+        const discover = async (auth: OAuthAuth) => {
+          const { index } = rememberDiscovery(await listModels(auth.access))
+          return applyDiscoveryToModels(provider.models, index)
+        }
 
         const current = (await readCurrentAuth()) ?? ctx.auth
         let auth = current
@@ -525,7 +594,7 @@ const plugin: Plugin = async ({ client }) => {
           // (`refresh`/`access`/`expires`) on `client.auth.set`, so discovery
           // cannot live durably in auth.json across refresh writes. Cache it in
           // this loader instance instead, and repopulate lazily on startup.
-          discovery = rememberDiscovery(pickModelInfo(await listModels(access)))
+          discovery = rememberDiscovery(await listModels(access)).alias
           return discovery
         }
 
@@ -603,9 +672,10 @@ const plugin: Plugin = async ({ client }) => {
               // opencode's UI/config, while Moonshot sees whatever its
               // /models endpoint says for this account (for example a
               // non-default slug). Mirrors kimi-cli's behavior — it always sends
-              // exactly the id it got back from `/models`. The `k3`/`k3-256k`
-              // config entries already carry their real wire slug, so they
-              // pass through unrewritten (only the Kimi body fields apply).
+              // exactly the id it got back from `/models`. The `k3.1-pro` /
+              // `k3.1-pro-highspeed` / `k3` / `k3-256k` / highspeed config
+              // entries already carry their real wire slug, so they pass
+              // through unrewritten (only the Kimi body fields apply).
               let newInit = init
               const targetModel = auth.model_id
               const originalBody =

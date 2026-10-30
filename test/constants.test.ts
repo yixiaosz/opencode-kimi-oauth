@@ -37,6 +37,25 @@ test("MODEL_ID goes over the wire verbatim (AGENTS.md rule 6)", () => {
   expect(C.MODEL_ID).toBe("kimi-for-coding")
 })
 
+test("K3.1 Pro model ids are registered in the Kimi allowlist", () => {
+  expect(C.K3_1_PRO_MODEL_ID).toBe("k3.1-pro")
+  expect(C.K3_1_PRO_HIGHSPEED_MODEL_ID).toBe("k3.1-pro-highspeed")
+  expect(C.KIMI_MODEL_IDS.has(C.K3_1_PRO_MODEL_ID)).toBe(true)
+  expect(C.KIMI_MODEL_IDS.has(C.K3_1_PRO_HIGHSPEED_MODEL_ID)).toBe(true)
+  expect(C.KIMI_MODEL_IDS.has(C.K3_MODEL_ID)).toBe(true)
+  expect(C.KIMI_MODEL_IDS.has(C.K3_256K_MODEL_ID)).toBe(true)
+  expect(C.KIMI_MODEL_IDS.has(C.HIGHSPEED_MODEL_ID)).toBe(true)
+})
+
+test("K3.1 Pro models are marked thinking-required", () => {
+  expect([...C.THINKING_REQUIRED_MODEL_IDS].sort()).toEqual([
+    C.K3_1_PRO_HIGHSPEED_MODEL_ID,
+    C.K3_1_PRO_MODEL_ID,
+  ].sort())
+  expect(C.THINKING_REQUIRED_MODEL_IDS.has(C.K3_MODEL_ID)).toBe(false)
+  expect(C.THINKING_REQUIRED_MODEL_IDS.has(C.MODEL_ID)).toBe(false)
+})
+
 test("REFRESH_SAFETY_WINDOW_MS is positive and well below token TTL", () => {
   // Token TTLs are ~15 min; anything bigger would mean we refresh on every call.
   expect(C.REFRESH_SAFETY_WINDOW_MS).toBeGreaterThan(0)

@@ -1,4 +1,4 @@
-// Values mirror kimi-cli v1.41.0 1:1. When upstream bumps, update here and
+// Values mirror kimi-cli v1.52.0 1:1. When upstream bumps, update here and
 // nothing else in the codebase should hard-code these strings.
 //
 // Source of truth: research/kimi-cli/src/kimi_cli/constant.py,
@@ -7,7 +7,7 @@
 // NOTE: client_id is a public constant shipped inside the official CLI, not a
 // secret.
 
-export const KIMI_CLI_VERSION = "1.41.0"
+export const KIMI_CLI_VERSION = "1.52.0"
 // Upstream: research/kimi-cli/src/kimi_cli/constant.py get_user_agent() →
 // f"KimiCLI/{get_version()}". This must match verbatim — Moonshot's
 // `kimi-for-coding` backend 403s on any other UA prefix
@@ -24,10 +24,12 @@ export const OAUTH_REFRESH_GRANT = "refresh_token"
 export const API_BASE_URL = "https://api.kimi.com/coding/v1"
 export const MODEL_ID = "kimi-for-coding"
 
-// K3, K3-256k, and the HighSpeed variant are served by the same coding
-// backend. Unlike MODEL_ID (a stable opencode-side alias that gets rewritten
-// to the discovered wire slug), these config ids ARE the wire slugs —
-// requests pass through unrewritten.
+// K3.1 Pro, K3, K3-256k, and the HighSpeed variants are served by the same
+// coding backend. Unlike MODEL_ID (a stable opencode-side alias that gets
+// rewritten to the discovered wire slug), these config ids ARE the wire
+// slugs — requests pass through unrewritten.
+export const K3_1_PRO_MODEL_ID = "k3.1-pro"
+export const K3_1_PRO_HIGHSPEED_MODEL_ID = "k3.1-pro-highspeed"
 export const K3_MODEL_ID = "k3"
 export const K3_256K_MODEL_ID = "k3-256k"
 export const HIGHSPEED_MODEL_ID = "kimi-for-coding-highspeed"
@@ -36,9 +38,19 @@ export const HIGHSPEED_MODEL_ID = "kimi-for-coding-highspeed"
 // untouched.
 export const KIMI_MODEL_IDS: ReadonlySet<string> = new Set([
   MODEL_ID,
+  K3_1_PRO_MODEL_ID,
+  K3_1_PRO_HIGHSPEED_MODEL_ID,
   K3_MODEL_ID,
   K3_256K_MODEL_ID,
   HIGHSPEED_MODEL_ID,
+])
+
+// K3.1 Pro models only support thinking mode. The coding backend rejects
+// requests with thinking disabled (HTTP 400), unlike the K3/K2.8 models which
+// silently fall back to K2.8 without thinking.
+export const THINKING_REQUIRED_MODEL_IDS: ReadonlySet<string> = new Set([
+  K3_1_PRO_MODEL_ID,
+  K3_1_PRO_HIGHSPEED_MODEL_ID,
 ])
 
 // Provider id the user must use in their opencode config. Intentionally NOT

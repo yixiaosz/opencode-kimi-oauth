@@ -5,7 +5,16 @@ import { test, expect, afterEach } from "bun:test"
 import pluginModule from "../src/index.ts"
 
 const plugin = pluginModule.server
-import { HIGHSPEED_MODEL_ID, K3_256K_MODEL_ID, K3_MODEL_ID, MODEL_ID, PROVIDER_ID, REFRESH_SAFETY_WINDOW_MS } from "../src/constants.ts"
+import {
+  HIGHSPEED_MODEL_ID,
+  K3_1_PRO_HIGHSPEED_MODEL_ID,
+  K3_1_PRO_MODEL_ID,
+  K3_256K_MODEL_ID,
+  K3_MODEL_ID,
+  MODEL_ID,
+  PROVIDER_ID,
+  REFRESH_SAFETY_WINDOW_MS,
+} from "../src/constants.ts"
 import { installFetchMock } from "./_util/fetchMock.ts"
 
 // kimiHeaders() → getDeviceId() reads/writes ~/.kimi/device_id; that file is
@@ -189,6 +198,46 @@ test("chat.params: k3 max variant passes through unclamped", async () => {
   expect(output.options.thinking).toBeUndefined()
 })
 
+test("chat.params: K3.1 Pro ignores off because thinking cannot be disabled", async () => {
+  const { hooks } = await getHooks()
+  const hook = hooks["chat.params"]!
+  for (const modelID of [K3_1_PRO_MODEL_ID, K3_1_PRO_HIGHSPEED_MODEL_ID]) {
+    const { output } = await callParams(
+      hook,
+      { modelID, sessionID: "sess-k31", variants: { off: { reasoning_effort: "off" } }, variant: "off" },
+    )
+    expect(output.options.prompt_cache_key).toBe("sess-k31")
+    expect(output.options.reasoning_effort).toBeUndefined()
+    expect(output.options.thinking).toBeUndefined()
+  }
+})
+
+test("chat.params: K3.1 Pro suppresses an explicit thinking.disabled", async () => {
+  const { hooks } = await getHooks()
+  const { output } = await callParams(
+    hooks["chat.params"]!,
+    {
+      modelID: K3_1_PRO_MODEL_ID,
+      modelOptions: { reasoning_effort: "high", thinking: { type: "disabled" } },
+    },
+  )
+  expect(output.options.reasoning_effort).toBe("high")
+  expect(output.options.thinking).toBeUndefined()
+})
+
+test("chat.params: K3.1 Pro low/high/max pass through", async () => {
+  const { hooks } = await getHooks()
+  const hook = hooks["chat.params"]!
+  for (const effort of ["low", "high", "max"] as const) {
+    const { output } = await callParams(
+      hook,
+      { modelID: K3_1_PRO_MODEL_ID, variants: { [effort]: { reasoning_effort: effort } }, variant: effort },
+    )
+    expect(output.options.reasoning_effort).toBe(effort)
+    expect(output.options.thinking).toBeUndefined()
+  }
+})
+
 test("chat.params: attaches prompt_cache_key = sessionID for kimi-for-coding only", async () => {
   const { hooks } = await getHooks()
   const hook = hooks["chat.params"]!
@@ -201,8 +250,9 @@ test("chat.params: attaches prompt_cache_key = sessionID for kimi-for-coding onl
 // low/medium/high/max → reasoning_effort kept, no thinking field (kimi-code's
 // OpenAI-protocol kosong provider never sends `thinking`; that shape belongs
 // to its Anthropic-protocol adapter).
-// unset → neither field (server picks the model default: high for K3, max
-// for K2.8). xhigh → mapped to "max" per the docs' server-side tier table.
+// unset → neither field (server picks the model default: high for K3.1 Pro
+// and K3, max for K2.8). xhigh → mapped to "max" per the docs' server-side
+// tier table.
 const EFFORT_MATRIX: Array<{
   in: Record<string, unknown>
   effort: string | undefined
@@ -284,6 +334,18 @@ test("chat.headers: effort=auto omits both thinking and reasoning_effort", async
   const { output } = await callHeaders(hooks["chat.headers"]!, {
     variants: { auto: { reasoning_effort: "auto" } },
     variant: "auto",
+  })
+  expect(output.headers[INTERNAL_PROMPT_CACHE_KEY_HEADER]).toBe("sess-1")
+  expect(output.headers[INTERNAL_THINKING_TYPE_HEADER]).toBeUndefined()
+  expect(output.headers[INTERNAL_REASONING_EFFORT_HEADER]).toBeUndefined()
+})
+
+test("chat.headers: K3.1 Pro off emits only prompt_cache_key", async () => {
+  const { hooks } = await getHooks()
+  const { output } = await callHeaders(hooks["chat.headers"]!, {
+    modelID: K3_1_PRO_MODEL_ID,
+    variants: { off: { reasoning_effort: "off" } },
+    variant: "off",
   })
   expect(output.headers[INTERNAL_PROMPT_CACHE_KEY_HEADER]).toBe("sess-1")
   expect(output.headers[INTERNAL_THINKING_TYPE_HEADER]).toBeUndefined()
@@ -456,6 +518,73 @@ test("provider.models: surfaces discovered video input in modalities", async () 
   expect(model.modalities?.input).toContain("video")
   expect(model.modalities?.input).toContain("image")
   expect(model.capabilities.input.image).toBe(true)
+})
+
+test("provider.models: backfills context/media for every Kimi model id", async () => {
+  mock = installFetchMock((call) => {
+    if (call.url.endsWith("/coding/v1/models")) {
+      return {
+        body: {
+          data: [
+            { id: MODEL_ID, display_name: "K2.8 Preview", context_length: 1048576, supports_image_in: true, supports_video_in: true },
+            { id: K3_1_PRO_MODEL_ID, display_name: "K3.1 Pro", context_length: 262144, supports_image_in: true, supports_video_in: true },
+            {
+              id: K3_1_PRO_HIGHSPEED_MODEL_ID,
+              display_name: "K3.1 Pro Highspeed 2x Usage Cost",
+              context_length: 1048576,
+              supports_image_in: true,
+              supports_video_in: true,
+            },
+            { id: K3_MODEL_ID, display_name: "K3", context_length: 262144, supports_image_in: true, supports_video_in: true },
+            { id: K3_256K_MODEL_ID, display_name: "K3-256k", context_length: 262144, supports_image_in: true, supports_video_in: false },
+            {
+              id: HIGHSPEED_MODEL_ID,
+              display_name: "K2.7 Code Highspeed",
+              context_length: 262144,
+              supports_image_in: true,
+              supports_video_in: true,
+            },
+          ],
+        },
+      }
+    }
+    return { body: { ok: true } }
+  })
+  const { hooks } = await getHooks()
+  const provider = makeProviderState()
+  const base = provider.models[MODEL_ID]!
+  const extraIds = [
+    K3_1_PRO_MODEL_ID,
+    K3_1_PRO_HIGHSPEED_MODEL_ID,
+    K3_MODEL_ID,
+    K3_256K_MODEL_ID,
+    HIGHSPEED_MODEL_ID,
+  ]
+  for (const id of extraIds) {
+    ;(provider.models as any)[id] = {
+      ...base,
+      id,
+      name: id === K3_1_PRO_HIGHSPEED_MODEL_ID ? "K3.1 Pro Highspeed" : id,
+      limit: { context: id === K3_MODEL_ID ? 8192 : 0, output: 8192 },
+      capabilities: {
+        ...base.capabilities,
+        attachment: false,
+        input: { ...base.capabilities.input, image: false, video: false },
+      },
+    }
+  }
+  const next = await hooks.provider!.models!(provider as any, { auth: validAuth() } as any)
+
+  expect(next[MODEL_ID]!.limit?.context).toBe(1048576)
+  expect(next[K3_1_PRO_MODEL_ID]!.limit?.context).toBe(262144)
+  expect(next[K3_1_PRO_MODEL_ID]!.capabilities?.input?.image).toBe(true)
+  expect((next[K3_1_PRO_MODEL_ID] as any).modalities?.input).toContain("video")
+  expect(next[K3_MODEL_ID]!.limit?.context).toBe(8192)
+  expect((next[K3_256K_MODEL_ID] as any).modalities?.input).not.toContain("video")
+  // Discovery must not replace curated names for real wire slugs.
+  expect(next[K3_1_PRO_HIGHSPEED_MODEL_ID]!.name).toBe("K3.1 Pro Highspeed")
+  // Unrelated models stay untouched.
+  expect(next["some-other-model"]!.limit?.context).toBe(1234)
 })
 
 test("provider.models: preserves an explicit user context limit", async () => {
@@ -955,6 +1084,37 @@ test("auth.loader: k3 wire id passes through unrewritten while Kimi body fields 
   })
 })
 
+test("auth.loader: k3.1-pro wire id passes through unrewritten while fields apply", async () => {
+  const { hooks } = await getHooks()
+  const { output: headerOutput } = await callHeaders(hooks["chat.headers"]!, {
+    modelID: K3_1_PRO_MODEL_ID,
+    sessionID: "sess-k31",
+    variants: { high: { reasoning_effort: "high" } },
+    variant: "high",
+  })
+  mock = installFetchMock((call) => {
+    if (call.url.endsWith("/coding/v1/models")) {
+      return { body: { data: [{ id: "kimi-for-coding", context_length: 262144 }] } }
+    }
+    return { body: { ok: true } }
+  })
+  const { fetch: f } = await getLoaderFetch(async () => validAuth())
+  await f("https://api.kimi.com/coding/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headerOutput.headers,
+    },
+    body: JSON.stringify({ model: K3_1_PRO_MODEL_ID, messages: [] }),
+  })
+  expect(JSON.parse(mock.calls[1]!.body as string)).toEqual({
+    model: K3_1_PRO_MODEL_ID,
+    messages: [],
+    prompt_cache_key: "sess-k31",
+    reasoning_effort: "high",
+  })
+})
+
 test("auth.loader: rewrites wire `model` to the discovered server id (Option A)", async () => {
   // Persisted auth already carries a discovered model_id different from the
   // opencode-side MODEL_ID placeholder — this is the alternate-slug case.
@@ -1124,6 +1284,7 @@ test("auth callback prints a schema-valid config snippet with top-level model va
       [key: string]: {
         models: {
           [key: string]: {
+            name?: string
             attachment?: boolean
             limit?: { context?: number }
             modalities?: { input?: string[]; output?: string[] }
@@ -1149,6 +1310,25 @@ test("auth callback prints a schema-valid config snippet with top-level model va
   expect(model.variants?.auto).toEqual({ reasoning_effort: "auto" })
   expect(model.variants?.max).toEqual({ reasoning_effort: "max" })
   expect(model.options?.variants).toBeUndefined()
+
+  const k31 = parsed.provider[PROVIDER_ID]!.models[K3_1_PRO_MODEL_ID]!
+  expect(k31.name).toBe("K3.1 Pro")
+  expect(k31.attachment).toBe(true)
+  expect(k31.limit).toBeUndefined()
+  expect(k31.modalities).toEqual({ input: ["text", "image", "video"], output: ["text"] })
+  expect(k31.variants).toEqual({
+    auto: { reasoning_effort: "auto" },
+    low: { reasoning_effort: "low" },
+    high: { reasoning_effort: "high" },
+    max: { reasoning_effort: "max" },
+  })
+  expect(k31.variants?.off).toBeUndefined()
+
+  const k31Highspeed = parsed.provider[PROVIDER_ID]!.models[K3_1_PRO_HIGHSPEED_MODEL_ID]!
+  expect(k31Highspeed.name).toBe("K3.1 Pro Highspeed")
+  expect(k31Highspeed.attachment).toBe(true)
+  expect(k31Highspeed.modalities).toEqual({ input: ["text", "image", "video"], output: ["text"] })
+  expect(k31Highspeed.variants?.off).toBeUndefined()
 
   const k3 = parsed.provider[PROVIDER_ID]!.models[K3_MODEL_ID]!
   expect(k3.attachment).toBe(true)
